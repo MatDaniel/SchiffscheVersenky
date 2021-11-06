@@ -13,15 +13,7 @@ add_subdirectory(3rdparty/glm)
 add_subdirectory(3rdparty/entt)
 include(3rdparty/imgui.cmake)
 
-# Create target
-add_executable(SchiffscheVersenky
-        src/EntryPoint.cpp
-        src/draw/Game.cpp)
-target_include_directories(SchiffscheVersenky
-        PRIVATE src)
-target_link_libraries(SchiffscheVersenky
-        PRIVATE glfw
-        PRIVATE glm
-        PRIVATE glad
-        PRIVATE EnTT
-        PRIVATE ImGui)
+# Targets
+include(client/client.cmake)
+include(server/server.cmake)
+include(shared/shared.cmake)
