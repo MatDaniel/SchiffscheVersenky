@@ -7,20 +7,20 @@ namespace Game
 {
 
     /**
-     * @brief Initialisiert das Spiel und führt die Game-Loop aus.
-     * @retval Der Fehlercode, mit dem das Spiel beendet wurde. 
+     * @brief Initializes the game and executes the game loop.
+     * @retval The error code with which the game ended.
      */
     int run();
 
     /**
-     * @brief Beantragt die Beendendigung des Spiels.
-     *        Das Spiel wird erst zu Beginn des nächsten Frames beendet.
-     * @param code Der Fehlercode, mit dem das Spiel beendet werden soll.
+     * @brief Requests the termination of the game.
+     *        Note: The game will not end until the beginning of the next frame.
+     * @param code The error code with which to end the game.
      */
     void exit(int code = 0);
 
     /**
-     * @retval Gibt die Welt mit den Objekten zurück.
+     * @retval The enity world.
      */
     entt::registry &world();
 
