@@ -1,15 +1,15 @@
 [submodule "3rdparty/glfw"]
 	path = 3rdparty/glfw
-	url = git@github.com:glfw/glfw.git
+	url = https://github.com/glfw/glfw.git
 [submodule "3rdparty/glad"]
 	path = 3rdparty/glad
-	url = git@github.com:Dav1dde/glad.git
+	url = https://github.com/Dav1dde/glad.git
 [submodule "3rdparty/glm"]
 	path = 3rdparty/glm
-	url = git@github.com:g-truc/glm.git
+	url = https://github.com/g-truc/glm.git
 [submodule "3rdparty/entt"]
 	path = 3rdparty/entt
-	url = git@github.com:skypjack/entt.git
+	url = https://github.com/skypjack/entt.git
 [submodule "3rdparty/imgui"]
 	path = 3rdparty/imgui
-	url = git@github.com:ocornut/imgui.git
+	url = https://github.com/ocornut/imgui.git
