@@ -2,7 +2,7 @@ cmake_minimum_required(VERSION 3.13)
 project(SchiffscheVersenky VERSION 1.0.0 LANGUAGES CXX)
 
 # Configuration
-set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD 20)
 
 # Load dependencies
 add_subdirectory(3rdparty/glfw)
