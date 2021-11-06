@@ -7,3 +7,9 @@
 [submodule "3rdparty/glm"]
 	path = 3rdparty/glm
 	url = git@github.com:g-truc/glm.git
+[submodule "3rdparty/entt"]
+	path = 3rdparty/entt
+	url = git@github.com:skypjack/entt.git
+[submodule "3rdparty/imgui"]
+	path = 3rdparty/imgui
+	url = git@github.com:ocornut/imgui.git

@@ -1,7 +1,7 @@
 #ifndef SHIFVRSKY_GAME_HPP
 #define SHIFVRSKY_GAME_HPP
 
-#include "Scene.hpp"
+#include <entt/entity/registry.hpp>
 
 namespace Game
 {
@@ -20,16 +20,9 @@ namespace Game
     void exit(int code = 0);
 
     /**
-     * @brief Setzt eine neue Szene für das Spiel fest.
-     *        Achtung: `nullptr` ist nicht erlaubt.
-     * @param scene Die neue Szene des Spiels.
+     * @retval Gibt die Welt mit den Objekten zurück.
      */
-    void scene(Scene*);
-
-    /**
-     * @retval Die zurzeit ausgewählte Szene.
-     */
-    Scene *scene();
+    entt::registry &world();
 
 }
 

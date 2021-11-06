@@ -10,15 +10,18 @@ set(GLAD_PROFILE core)
 set(GLAD_API gl=4.6)
 add_subdirectory(3rdparty/glad)
 add_subdirectory(3rdparty/glm)
+add_subdirectory(3rdparty/entt)
+include(3rdparty/imgui.cmake)
 
 # Create target
 add_executable(SchiffscheVersenky
         src/EntryPoint.cpp
-        src/draw/Game.cpp
-        src/draw/Scene.cpp)
+        src/draw/Game.cpp)
 target_include_directories(SchiffscheVersenky
         PRIVATE src)
 target_link_libraries(SchiffscheVersenky
         PRIVATE glfw
         PRIVATE glm
-        PRIVATE glad)
+        PRIVATE glad
+        PRIVATE EnTT
+        PRIVATE ImGui)
