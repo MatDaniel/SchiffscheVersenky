@@ -8,6 +8,17 @@
 
 #include <optional>
 #include <iostream>
+#include <chrono>
+
+// Properties
+//------------
+
+static glm::uvec2 s_windowSize { 960, 540 };
+static std::chrono::high_resolution_clock s_timer;
+static auto s_frameStart = s_timer.now();
+static float s_deltaTime = 0.0F;
+static GLFWwindow *s_window = nullptr;
+static std::optional<int> s_exitCode;
 
 // Callbacks
 //-----------
@@ -20,8 +31,14 @@
  */
 static void framebufferSizeCallback(GLFWwindow* window, int width, int height)
 {
+    
+    // Save size
+    s_windowSize.x = width;
+    s_windowSize.y = height;
+
     // Ensures that the viewport size correspond to the new window size.
     glViewport(0, 0, width, height);
+
 }
 
 static void glfwErrorCallback(int error, const char* description)
@@ -29,18 +46,11 @@ static void glfwErrorCallback(int error, const char* description)
     std::cerr << "[Error] GLFW-Fehler " << error << ": " << description << std::endl;
 }
 
-// Properties
-//------------
-
-static entt::registry s_world;
-static GLFWwindow *s_window = nullptr;
-static std::optional<int> s_exitCode;
-
 // Utility
 //---------
 
 /**
- * @brief Initializes GLFW, OpenGL und ImGUI.
+ * @brief Initializes GLFW, OpenGL and ImGUI.
  * @retval Whether successful or not.
  */
 static bool init()
@@ -61,7 +71,7 @@ static bool init()
 #endif
 
     // Creates a window with the title "SchiffscheVersenky"
-    s_window = glfwCreateWindow(960, 540, "SchiffscheVersenky", NULL, NULL);
+    s_window = glfwCreateWindow(s_windowSize.x, s_windowSize.y, "SchiffscheVersenky", NULL, NULL);
     if (s_window == nullptr)
     {
         std::cout << "[Critical] Window creation failed!" << std::endl;
@@ -112,15 +122,24 @@ static bool init()
 // Functions
 //-----------
 
-int Game::run()
+int Game::run(std::unique_ptr<Scene> &&scene)
 {
 
     // Initializes the window and OpenGL.
     if (!init()) return EXIT_FAILURE;
 
+    // Load entry scene
+    Scene::load(std::move(scene));
+
     // The rendering loop. Exectues until the window is closed or a system asks for it.
-    while (!glfwWindowShouldClose(s_window) || s_exitCode.has_value())
+    while (!glfwWindowShouldClose(s_window) && !s_exitCode.has_value())
     {
+
+        // Update delta time.
+        auto frameEnd = s_timer.now();
+        using fdur = std::chrono::duration<float>;
+        s_deltaTime = std::chrono::duration_cast<fdur>(frameEnd - s_frameStart).count();
+        s_frameStart = frameEnd;
 
         // Pulls the IO events. (keyboard input, mouse, etc.)
         glfwPollEvents();
@@ -130,7 +149,8 @@ int Game::run()
         ImGui_ImplGlfw_NewFrame();
         ImGui::NewFrame();
 
-        // TODO: Game Loop...
+        // Update game logic
+        Scene::current()->update();
 
         // Render frame in imgui.
         ImGui::Render();
@@ -149,12 +169,17 @@ int Game::run()
 
 }
 
-void Game::exit(int code)
+void Game::exit(int code) noexcept
 {
     s_exitCode = code;
 }
 
-entt::registry& Game::world()
+float Game::deltaTime() noexcept
 {
-    return s_world;
+    return s_deltaTime;
+}
+
+glm::uvec2 Game::windowSize() noexcept
+{
+    return s_windowSize;
 }
