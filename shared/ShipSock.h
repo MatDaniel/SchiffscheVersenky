@@ -1,14 +1,46 @@
 // Descibes the io interfaces used by the server client netcode for communication (this file has to be always up to date)
 #pragma once
 
-#include <stdint.h>
+#pragma comment(lib, "ws2_32.lib")
+
+#include <cstdint>
+#include <cstdio>
+#include <WinSock2.h>
+#include <WS2tcpip.h>
 
 #ifdef _MSC_VER
-#  define PACKED_STRUCT(name) \
-    __pragma(pack(push, 1)) struct name __pragma(pack(pop))
-#elif defined(__GNUC__)
-#  define PACKED_STRUCT(name) struct __attribute__((packed)) name
+#include <intrin.h>
+#define PACKED_STRUCT(name) \
+	__pragma(pack(push, 1)) struct name __pragma(pack(pop))
+
+__declspec(noinline)
+inline long SsAssertExecute(
+	const bool  Expression,
+	const char* FailString,
+	...
+) {
+	if (Expression) {
+
+		printf("[ShipSock] ");
+		va_list va;
+		va_start(va, FailString);
+		vprintf(FailString, va);
+
+		if (Expression > 0)
+			return IsDebuggerPresent();
+	}
+
+	return 0;
+}
+#define SsAssert(Expression, FailString, ...)\
+	((SsAssertExecute(!!(Expression), (FailString), __VA_ARGS__) &&\
+	(__debugbreak(), 1)), (Expression))
+#define SsLog(...) SsAssertExecute(-1, __VA_ARGS__)
+#elif
+#define SsAssert(...)
 #endif
+
+
 
 // Server and Client may both recive as well as send this struct to remotes
 struct ShipSockControl {
@@ -56,3 +88,22 @@ struct ShipSockControl {
 	uint8_t FlexibleArrayMember[]; // this points to the end of the struct and can be additionally transmitted with the struct through the protocol,
 	                               // should be useful for passing additional information that does not belong in the base class
 };
+
+class SocketWrap {
+public:
+	inline SocketWrap() {
+		SsLog("Opening ShipSock\n");
+		WSADATA WinSockData;
+		auto Result = WSAStartup(MAKEWORD(2, 2),
+			&WinSockData);
+		SsAssert(Result,
+			"failed to open Windows Socket API 2.2 [%d]\n",
+			Result);
+		
+	}
+	inline ~SocketWrap() {
+		WSACleanup();
+	}
+};
+
+inline const char* DefaultPortNumber = "50001";
