@@ -8,21 +8,37 @@
 
 #include <optional>
 #include <iostream>
+#include <chrono>
+
+// Properties
+//------------
+
+static glm::uvec2 s_windowSize { 960, 540 };
+static std::chrono::high_resolution_clock s_timer;
+static auto s_frameStart = s_timer.now();
+static float s_deltaTime = 0.0F;
+static GLFWwindow *s_window = nullptr;
+static std::optional<int> s_exitCode;
 
 // Callbacks
 //-----------
 
 /**
- * @brief Ein Callback für, wenn sich die Fenstergröße verändert.
- * @param window Das betroffene Fenster.
- * @param width Die neue Breite des Fensters.
- * @param height Die neue Höhe des Fensters.
+ * @brief A callback for window resize.
+ * @param window The resized window.
+ * @param width The new window width.
+ * @param height The new window height.
  */
 static void framebufferSizeCallback(GLFWwindow* window, int width, int height)
 {
-    // Stellt sicher, das die Abmessungen des Viewports mit
-    // den neuen Abmessungen des Fensters übereinstimmen.
+    
+    // Save size
+    s_windowSize.x = width;
+    s_windowSize.y = height;
+
+    // Ensures that the viewport size correspond to the new window size.
     glViewport(0, 0, width, height);
+
 }
 
 static void glfwErrorCallback(int error, const char* description)
@@ -30,19 +46,12 @@ static void glfwErrorCallback(int error, const char* description)
     std::cerr << "[Error] GLFW-Fehler " << error << ": " << description << std::endl;
 }
 
-// Properties
-//------------
-
-static entt::registry s_world;
-static GLFWwindow *s_window = nullptr;
-static std::optional<int> s_exitCode;
-
 // Utility
 //---------
 
 /**
- * @brief Initialisiert das Fenster, OpenGL und ImGUI.
- * @retval Ob erfolgreich oder nicht.
+ * @brief Initializes GLFW, OpenGL and ImGUI.
+ * @retval Whether successful or not.
  */
 static bool init()
 {
@@ -50,29 +59,27 @@ static bool init()
     // GLFW
     //------
 
-    // Setze Fehler-Callback für GLFW
+    // Initializes and configures GLFW for OpenGL 4.6 with the core profile.
     glfwSetErrorCallback(glfwErrorCallback);
-    
-    // Initializiere und konfiguriere GLFW für OpenGL 4.6 im 'Core'-Profil
     glfwInit();
     glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 4);
     glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 6);
     glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
 
 #ifdef __APPLE__
-    glfwWindowHint(GLFW_OPENGL_FORWARD_COMPAT, GL_TRUE); // Erforderlich bei Mac
+    glfwWindowHint(GLFW_OPENGL_FORWARD_COMPAT, GL_TRUE); // Required for Mac
 #endif
 
-    // Erstellt ein Fenster mit dem Titel "SchiffscheVersenky"
-    s_window = glfwCreateWindow(960, 540, "SchiffscheVersenky", NULL, NULL);
+    // Creates a window with the title "SchiffscheVersenky"
+    s_window = glfwCreateWindow(s_windowSize.x, s_windowSize.y, "SchiffscheVersenky", NULL, NULL);
     if (s_window == nullptr)
     {
-        std::cout << "[Critical] Das Erstellen eines Fenster ist fehlgeschlagen!" << std::endl;
+        std::cout << "[Critical] Window creation failed!" << std::endl;
         glfwTerminate();
         return false;
     }
 
-    // Konfiguriert das erstellte Fenster
+    // Configures the created window
     glfwMakeContextCurrent(s_window);
     glfwSetFramebufferSizeCallback(s_window, framebufferSizeCallback);
     glfwSwapInterval(1); // VSync
@@ -80,34 +87,34 @@ static bool init()
     // OpenGL
     //--------
 
-    // Lädt alle OpenGL-Funktionspointer mit GLAD
+    // Loads the opengl function pointer with GLAD
     if (!gladLoadGLLoader((GLADloadproc)glfwGetProcAddress))
     {
-        std::cerr << "[Critical] Das Laden der OpenGL-Funktionspointer ist fehlgeschlagen!" << std::endl;
+        std::cerr << "[Critical] Loading the OpenGL function pointers failed!" << std::endl;
         glfwTerminate();
         return false;
     }
 
-    // Konfiguriert den globalen Zustand von OpenGL 
+    // Configures the global state of OpenGL
     glEnable(GL_DEPTH_TEST);
 
     // Dear ImGui
     //------------
 
-    // Richtet ImGui ein.
+    // Setup
     IMGUI_CHECKVERSION();
     ImGui::CreateContext();
     ImGuiIO& io = ImGui::GetIO(); (void)io;
 
-    // Legt ImGui-Theme fest.
+    // Theme
     ImGui::StyleColorsDark();
     //// ImGui::StyleColorsClassic();
 
-    // Richtet die Platform/Renderer Backends ein.
+    // Platform/Renderer Backend.
     ImGui_ImplGlfw_InitForOpenGL(s_window, true);
     ImGui_ImplOpenGL3_Init("#version 150");
 
-    // Initialisierung erfolgreich beendet.
+    // Finished successfully
     return true;
 
 }
@@ -115,50 +122,64 @@ static bool init()
 // Functions
 //-----------
 
-int Game::run()
+int Game::run(std::unique_ptr<Scene> &&scene)
 {
 
-    // Initialisiert das Fenster und OpenGL.
+    // Initializes the window and OpenGL.
     if (!init()) return EXIT_FAILURE;
 
-    // Die Haupt-Schleife. Führt solange aus, bis entweder das Fenster vom Benutzer geschlossen wurde,
-    // oder ein System im Spiel eine Beendigung beantragt hat.
-    while (!glfwWindowShouldClose(s_window) || s_exitCode.has_value())
+    // Load entry scene
+    Scene::load(std::move(scene));
+
+    // The rendering loop. Exectues until the window is closed or a system asks for it.
+    while (!glfwWindowShouldClose(s_window) && !s_exitCode.has_value())
     {
 
-        // Ruft die IO-Events ab. (Tastatur-Eingabe, Maus, etc.)
+        // Update delta time.
+        auto frameEnd = s_timer.now();
+        using fdur = std::chrono::duration<float>;
+        s_deltaTime = std::chrono::duration_cast<fdur>(frameEnd - s_frameStart).count();
+        s_frameStart = frameEnd;
+
+        // Pulls the IO events. (keyboard input, mouse, etc.)
         glfwPollEvents();
 
-        // Beginnt den neuen Frame in ImGUI.
+        // Begin new frame in imgui.
         ImGui_ImplOpenGL3_NewFrame();
         ImGui_ImplGlfw_NewFrame();
         ImGui::NewFrame();
 
-        // TODO: Game Loop...
+        // Update game logic
+        Scene::current()->update();
 
-        // Rendert die ImGui-Fenster.
+        // Render frame in imgui.
         ImGui::Render();
         ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
 
-        // Vertausche die Buffer und präsentiere somit das Bild.
+        // Swaps the buffer and presents the image.
         glfwSwapBuffers(s_window);
 
     }
 
-    // Beendet GLFW und alle damit verbundenen Ressourcen.
+    // Terminates GLFW and all its resources.
     glfwTerminate();
 
-    // Gibt den den Exit-Code der Ausführung zurück.
+    // Returns the exit code.
     return s_exitCode.value_or(EXIT_SUCCESS);
 
 }
 
-void Game::exit(int code)
+void Game::exit(int code) noexcept
 {
     s_exitCode = code;
 }
 
-entt::registry& Game::world()
+float Game::deltaTime() noexcept
 {
-    return s_world;
+    return s_deltaTime;
+}
+
+glm::uvec2 Game::windowSize() noexcept
+{
+    return s_windowSize;
 }
