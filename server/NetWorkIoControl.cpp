@@ -1,15 +1,15 @@
 // This implements the ClientContoller that manages the clients and provides an IO bridge
 #include "NetworkIoControl.h"
 
-NetWorkIoControl::NetWorkIoControl( // Creates 
+NetWorkIoControl::NetWorkIoControl(
 	const char* PortNumber,
-	long*       OutResponse
+	long* OutResponse
 ) {
 	SsLog("Preparing internal server structures for async IO operation\n"
-		"Retriving portnumber information for localhost\n");
-	*OutResponse = 0;
+		"Retrieving portnumber information for localhost\n");
+	*OutResponse = -1;
 	addrinfo* ServerInformation,
-	          AddressHints{};
+		AddressHints{};
 	AddressHints.ai_flags = AI_PASSIVE;
 	AddressHints.ai_family = AF_INET;
 	AddressHints.ai_socktype = SOCK_STREAM;
@@ -34,6 +34,7 @@ NetWorkIoControl::NetWorkIoControl( // Creates
 			ServerInformationIterator->ai_protocol);
 	} while (LocalServerSocket == INVALID_SOCKET &&
 		(ServerInformationIterator = ServerInformationIterator->ai_next));
+	*OutResponse = -2;
 	if (SsAssert(LocalServerSocket == INVALID_SOCKET,
 		"failed to create socked with: %d\n",
 		WSAGetLastError()))
@@ -45,6 +46,7 @@ NetWorkIoControl::NetWorkIoControl( // Creates
 		ServerInformationIterator->ai_addrlen);
 	freeaddrinfo(ServerInformation);
 	ServerInformation = nullptr;
+	*OutResponse = -3;
 	if (SsAssert(Result,
 		"failed to bind socket to port \"%s\", with: %d\n",
 		PortNumber,
@@ -55,14 +57,16 @@ NetWorkIoControl::NetWorkIoControl( // Creates
 	Result = listen(
 		LocalServerSocket,
 		SOMAXCONN);
+	*OutResponse = -4;
 	if (SsAssert(Result,
 		"failed to initilize listening queue with: %d\n",
 		WSAGetLastError()))
 		goto Cleanup;
+
+	*OutResponse = 0;
 	return;
 
 Cleanup:
-	*OutResponse = -1;
 	if (ServerInformation)
 		freeaddrinfo(ServerInformation),
 		ServerInformation = nullptr;
@@ -156,7 +160,7 @@ long NetWorkIoControl::LaunchServerIoManagerAndRegisterServiceCallback(
 				SocketArray,
 				NumberOfSockets * sizeof(WSAPOLLFD))) {
 			
-				NewSocketArray[NumberOfSockets - 1].fd = ConnectedClients[NumberOfSockets - 1].AssociatedClient;
+				NewSocketArray[NumberOfSockets - 1].fd = ConnectedClients[NumberOfSockets - 2].AssociatedClient;
 				NewSocketArray[NumberOfSockets - 1].events = POLLIN;
 				SocketArray = NewSocketArray;
 				break;
@@ -190,11 +194,11 @@ long NetWorkIoControl::LaunchServerIoManagerAndRegisterServiceCallback(
 			// Skipping sockets with no pending operations
 			if (!SocketArray[i].revents)
 				goto EndOfFlagLoop;
-			for (auto j = 0; j < sizeof(FlagSetArray); ++j) {
+			for (auto j = 0; j < _countof(FlagSetArray); ++j) {
 				
 				IoRequestPacket UniversalRequestPacket{
 					.RequestingSocket = SocketArray[i].fd,
-					.OptionalClient = &ConnectedClients[i - 1],
+					.OptionalClient = i ? &ConnectedClients[i - 1] : nullptr,
 					.IoRequestStatus = IoRequestPacket::STATUS_REQUEST_NOT_HANDLED
 				};
 				switch (SocketArray[i].revents & FlagSetArray[j]) {
@@ -232,7 +236,8 @@ long NetWorkIoControl::LaunchServerIoManagerAndRegisterServiceCallback(
 				case POLLRDNORM:
 					SsLog("Socket [%p] is requesting to receive a packet\n",
 						SocketArray[i].fd);
-					UniversalRequestPacket.IoControlCode = IoRequestPacket::SOCKET_DISCONNECTED;
+
+					UniversalRequestPacket.IoControlCode = i ? IoRequestPacket::INCOMING_PACKET : IoRequestPacket::INCOMING_CONNECTION;
 					IoCompleteRequestRoutine(
 						this,
 						&UniversalRequestPacket,

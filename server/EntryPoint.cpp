@@ -1,4 +1,3 @@
-#include <iostream>
 #include "NetworkIoControl.h"
 
 void NetworkDispatchTest(
@@ -18,7 +17,7 @@ void NetworkDispatchTest(
 }
 
 int main(
-	int argc,
+	int         argc,
 	const char* argv[]
 ) {
 	// Create Server on passed port number or use default
@@ -38,7 +37,6 @@ int main(
 		"NetworkManager failed to execute properly -> shuting down server : %d\n",
 		Result))
 		return EXIT_FAILURE;
-
 
 	return EXIT_SUCCESS;
 }

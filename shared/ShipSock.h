@@ -10,6 +10,7 @@
 #define _CRT_SECURE_NO_WARNINGS
 #include <cstdio>
 #include <intrin.h>
+#include <atomic>
 #define PACKED_STRUCT(name) \
 	__pragma(pack(push, 1)) struct name __pragma(pack(pop))
 
@@ -60,6 +61,12 @@ inline long SsAssertExecute(
 #elif
 #define SsAssert(...)
 #endif
+
+inline void WaitForDebugger() {
+	while (!IsDebuggerPresent())
+		if (!SwitchToThread())
+			SleepEx(100, TRUE);
+}
 
 
 
@@ -113,18 +120,23 @@ struct ShipSockControl {
 class SocketWrap {
 public:
 	inline SocketWrap() {
-		SsLog("Opening ShipSock\n");
-		WSADATA WinSockData;
-		auto Result = WSAStartup(MAKEWORD(2, 2),
-			&WinSockData);
-		SsAssert(Result,
-			"failed to open Windows Socket API 2.2 [%d]\n",
-			Result);
-		
+		if (++RefrenceCounter == 1) {
+			SsLog("Opening ShipSock\n");
+			WSADATA WinSockData;
+			auto Result = WSAStartup(MAKEWORD(2, 2),
+				&WinSockData);
+			SsAssert(Result,
+				"failed to open Windows Socket API 2.2 [%d]\n",
+				Result);
+		}
 	}
 	inline ~SocketWrap() {
-		WSACleanup();
+		if (--RefrenceCounter == 0)
+			WSACleanup();
 	}
+
+	static inline std::atomic<uint32_t> RefrenceCounter = 0;
 };
 
-inline const char* DefaultPortNumber = "50001";
+inline const char* DefaultPortNumber    = "50001";
+inline const char* DefaultServerAddress = "127.0.0.1";

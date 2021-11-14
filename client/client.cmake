@@ -1,5 +1,6 @@
 add_executable(client
         ${CMAKE_CURRENT_LIST_DIR}/EntryPoint.cpp
+        ${CMAKE_CURRENT_LIST_DIR}/NetworkQueue.cpp
         ${CMAKE_CURRENT_LIST_DIR}/draw/Game.cpp
         ${CMAKE_CURRENT_LIST_DIR}/draw/Scene.cpp
         ${CMAKE_CURRENT_LIST_DIR}/draw/scenes/MenuScene.cpp)
