@@ -2,29 +2,50 @@
 #pragma once
 
 #pragma comment(lib, "ws2_32.lib")
-
 #include <cstdint>
-#include <cstdio>
 #include <WinSock2.h>
 #include <WS2tcpip.h>
 
 #ifdef _MSC_VER
+#define _CRT_SECURE_NO_WARNINGS
+#include <cstdio>
 #include <intrin.h>
 #define PACKED_STRUCT(name) \
 	__pragma(pack(push, 1)) struct name __pragma(pack(pop))
 
 __declspec(noinline)
 inline long SsAssertExecute(
-	const bool  Expression,
+	const int   Expression,
 	const char* FailString,
 	...
 ) {
 	if (Expression) {
 
+		char StringBuffer[2000];
 		printf("[ShipSock] ");
 		va_list va;
 		va_start(va, FailString);
-		vprintf(FailString, va);
+		vsprintf(
+			StringBuffer, 
+			FailString,
+			va);
+		va_end(va);
+
+		auto StringInterator = StringBuffer;
+		auto LastSTringAddress = StringInterator;
+		while (*StringInterator) {
+			if (*StringInterator == '\n') {
+				*StringInterator = '\0';
+				printf(LastSTringAddress);
+				printf((*(StringInterator + 1) != '\0') ? "\n           " : "\n");
+				LastSTringAddress = StringInterator + 1;
+			}
+			++StringInterator;
+		}
+		if (StringInterator != LastSTringAddress) {
+			*(uint16_t*)StringInterator = '\n\0';
+			printf(LastSTringAddress);
+		}
 
 		if (Expression > 0)
 			return IsDebuggerPresent();
