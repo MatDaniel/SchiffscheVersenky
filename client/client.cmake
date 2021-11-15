@@ -21,7 +21,6 @@ target_link_libraries(client
         PRIVATE glfw
         PRIVATE glm
         PRIVATE glad
-        PRIVATE EnTT
         PRIVATE ImGui
         PRIVATE stb
         PRIVATE tinyobjloader
