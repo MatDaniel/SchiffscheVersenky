@@ -1,0 +1,13 @@
+#include "resource.h"
+#include "winres.h"
+
+// Language
+LANGUAGE LANG_NEUTRAL, SUBLANG_NEUTRAL
+#pragma code_page(1252)
+
+// Shaders
+IDR_VSHA_CEL        RT_RCDATA "res\\shaders\\cel.vert"
+IDR_FSHA_CEL        RT_RCDATA "res\\shaders\\cel.frag"
+
+// Meshes
+IDR_MESH_TEAPOT     RT_RCDATA "res\\models\\teapot.obj"

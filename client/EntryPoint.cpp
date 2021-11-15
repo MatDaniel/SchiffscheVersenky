@@ -6,6 +6,8 @@ int main(
 	int         argc,
 	const char* argv[]
 ) {
+
+	/*
 	auto ServerAddress = DefaultServerAddress;
 	auto PortNumber = DefaultPortNumber;
 	if (argc >= 2)
@@ -22,9 +24,7 @@ int main(
 	SsAssert(Result < 0,
 		"failed to connect client socket to server for io operation with: %d\n",
 		Result);
+	*/
 
-
-
-	return Game::run<MenuScene>();
-
+    return Game::run(Scene::getter<MenuScene>());
 }

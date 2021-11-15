@@ -1,4 +1,3 @@
-add_library(shared STATIC
-        ${CMAKE_CURRENT_LIST_DIR}/Foo.cpp)
+add_library(shared INTERFACE)
 target_include_directories(shared
-        PUBLIC ${CMAKE_CURRENT_LIST_DIR})
+        INTERFACE ${CMAKE_CURRENT_LIST_DIR})

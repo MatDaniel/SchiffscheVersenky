@@ -10,21 +10,10 @@ namespace Game
 
     /**
      * @brief Initializes the game and executes the game loop.
-     * @param scene The entry scene to load.
+     * @param initalSceneGetter The entry scene getter, loads the returned scene.
      * @retval The error code with which the game ended.
      */
-    int run(std::unique_ptr<Scene> &&scene);
-
-    /**
-     * @brief Initializes the game and executes the game loop.
-     * @tparam T The entry scene to load.
-     * @retval The error code with which the game ended.
-     */
-    template <SceneDerived T>
-    inline int run()
-    {
-        return run(std::make_unique<T>());
-    }
+    int run(Scene::GetterFunc initalSceneGetter);
 
     /**
      * @brief Requests the termination of the game.
@@ -41,7 +30,7 @@ namespace Game
     /**
      * @retval The size of the current viewport and window.
      */
-    glm::uvec2 windowSize() noexcept;
+    const glm::uvec2 &windowSize() noexcept;
 
 }
 

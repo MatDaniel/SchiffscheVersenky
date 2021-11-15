@@ -2,16 +2,33 @@
 #define SHIFVRSKY_SCENE_HPP
 
 #include <memory>
-#include <entt/core/hashed_string.hpp>
-
-class Scene;
-
-template <typename T>
-concept SceneDerived = std::is_base_of_v<Scene, T>;
+#include <glm/mat4x4.hpp>
 
 class Scene
 {
 public:
+
+    /**
+     * @brief This creates a new instance of a scene.
+     * @retval A pointer to an instance of a scene.
+     */
+    typedef std::unique_ptr<Scene>(*GetterFunc)();
+
+    /**
+     * @brief Creates a scene getter function,
+     *        that can be used to hand over the scene
+     *        with the intention to load it later.
+     * @tparam T The type of scene to return.
+     * @retval A function that returns a new instance
+     *         of the specified scene type.
+     */
+    template <class T>
+    inline static GetterFunc getter()
+    {
+        return []() -> std::unique_ptr<Scene> {
+            return { std::make_unique<T>() };
+        };
+    }
 
     /**
      * @brief Loads a scene.
@@ -20,7 +37,7 @@ public:
      *              and will be replaced with the entry scene at run.
      * @tparam T The scene to load.
      */
-    template <SceneDerived T>
+    template <class T>
     static inline void load()
     {
         load(std::make_unique<T>());
@@ -40,11 +57,6 @@ public:
      *         Note: Might be null, if run wasn't called yet.
      */
     static Scene *current() noexcept;
-
-    /**
-     * @brief Initializes the scene. Called when the scene is loaded.
-     */
-    virtual void init();
 
     /**
      * @brief Updates the scene. Is called every frame.

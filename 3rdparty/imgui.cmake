@@ -1,7 +1,5 @@
 project(ImGui LANGUAGES CXX)
 
-message(${CMAKE_CURRENT_LIST_DIR}/imgui/imgui_draw.cpp)
-
 add_library(ImGui STATIC
     ${CMAKE_CURRENT_LIST_DIR}/imgui/imgui_draw.cpp
     ${CMAKE_CURRENT_LIST_DIR}/imgui/imgui_tables.cpp

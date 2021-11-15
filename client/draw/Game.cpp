@@ -5,10 +5,18 @@
 #include <imgui_impl_opengl3.h>
 #include <glad/glad.h>
 #include <GLFW/glfw3.h>
+#define STB_IMAGE_IMPLEMENTATION
+#include <stb_image.h>
 
 #include <optional>
 #include <iostream>
 #include <chrono>
+
+#include "resource.h"
+#include "res/ShaderPrograms.hpp"
+#include "res/Textures.hpp"
+#include "res/Models.hpp"
+#include "res/Materials.hpp"
 
 // Properties
 //------------
@@ -31,20 +39,31 @@ static std::optional<int> s_exitCode;
  */
 static void framebufferSizeCallback(GLFWwindow* window, int width, int height)
 {
-    
-    // Save size
+
+    // Save window size
     s_windowSize.x = width;
     s_windowSize.y = height;
 
-    // Ensures that the viewport size correspond to the new window size.
+    // Set viewport to the size of the actual window
     glViewport(0, 0, width, height);
 
 }
 
+#ifndef NDEBUG
+
 static void glfwErrorCallback(int error, const char* description)
 {
-    std::cerr << "[Error] GLFW-Fehler " << error << ": " << description << std::endl;
+    std::cerr << "[ShipWindow] GLFW-Error " << error << ": " << description << std::endl;
 }
+
+static void gladErrorCallback(const char *name, void *funcptr, int len_args, ...)
+{
+    GLenum error_code = glad_glGetError();
+    if (error_code)
+        std::cerr << "[ShipRenderer] GL-Error " << error_code << " in " << name << std::endl;
+}
+
+#endif
 
 // Utility
 //---------
@@ -56,15 +75,23 @@ static void glfwErrorCallback(int error, const char* description)
 static bool init()
 {
 
+    // Error Callbacks
+    //-----------------
+
+    #ifndef NDEBUG
+    glfwSetErrorCallback(glfwErrorCallback);
+    glad_set_post_callback_gl(gladErrorCallback);
+    #endif
+
     // GLFW
     //------
 
     // Initializes and configures GLFW for OpenGL 4.6 with the core profile.
-    glfwSetErrorCallback(glfwErrorCallback);
     glfwInit();
     glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 4);
     glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 6);
     glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
+    glfwWindowHint(GLFW_SAMPLES, 16); // MSAA
 
 #ifdef __APPLE__
     glfwWindowHint(GLFW_OPENGL_FORWARD_COMPAT, GL_TRUE); // Required for Mac
@@ -96,7 +123,11 @@ static bool init()
     }
 
     // Configures the global state of OpenGL
-    glEnable(GL_DEPTH_TEST);
+    glEnable(GL_DEPTH_TEST); // Depth Buffer:
+                             // used to sort out the order of the overlapping faces.
+    //glEnable(GL_CULL_FACE); // Performance optimization:
+                            // skips fragment shader calls for faces that are not visible from the camera.
+    glEnable(GL_MULTISAMPLE);
 
     // Dear ImGui
     //------------
@@ -119,17 +150,34 @@ static bool init()
 
 }
 
+static void initResources()
+{
+
+    // Shader Programs
+    ShaderPrograms::cel = {{
+        { GL_VERTEX_SHADER, IDR_VSHA_CEL },
+        { GL_FRAGMENT_SHADER, IDR_FSHA_CEL }
+    }};
+
+    // Models
+    Models::teapot = { IDR_MESH_TEAPOT };
+
+}
+
 // Functions
 //-----------
 
-int Game::run(std::unique_ptr<Scene> &&scene)
+int Game::run(Scene::GetterFunc initalSceneGetter)
 {
 
     // Initializes the window and OpenGL.
     if (!init()) return EXIT_FAILURE;
 
+    // Load resources
+    initResources();
+
     // Load entry scene
-    Scene::load(std::move(scene));
+    Scene::load(initalSceneGetter());
 
     // The rendering loop. Exectues until the window is closed or a system asks for it.
     while (!glfwWindowShouldClose(s_window) && !s_exitCode.has_value())
@@ -179,7 +227,7 @@ float Game::deltaTime() noexcept
     return s_deltaTime;
 }
 
-glm::uvec2 Game::windowSize() noexcept
+const glm::uvec2 &Game::windowSize() noexcept
 {
     return s_windowSize;
 }

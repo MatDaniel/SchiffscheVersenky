@@ -2,8 +2,15 @@
 
 #include <imgui.h>
 #include <glad/glad.h>
+#include <glm/glm.hpp>
+#include <glm/mat4x4.hpp>
+#include <glm/gtc/matrix_transform.hpp>
 
 #include "draw/Game.hpp"
+#include "draw/res/ShaderPrograms.hpp"
+#include "draw/res/Models.hpp"
+#include "draw/res/Materials.hpp"
+#include "draw/util/UniformBufferObjects.hpp"
 
 void MenuScene::update()
 {
@@ -33,7 +40,6 @@ void MenuScene::update()
         ImGui::PopStyleVar(2);
 
         // Buttons
-        
         ImGui::BeginDisabled(m_serverConnectionWindow);
         if (ImGui::Button("Play"))
             m_serverConnectionWindow = true;
@@ -41,11 +47,12 @@ void MenuScene::update()
             Game::exit();
         ImGui::EndDisabled();
 
+        // Darken the scene while the connection popup is open
         if (m_serverConnectionWindow)
         {
             auto drawList = ImGui::GetWindowDrawList();
             auto col = ImColor(0.0F, 0.0F, 0.0F, 0.5F);
-            drawList->AddRectFilled(ImVec2(-0.1F, -0.1F), imWindowSize, col, 0.0f, ImDrawFlags_None); 
+            drawList->AddRectFilled(ImVec2(0.0F, 0.0F), imWindowSize, col, 0.0f, ImDrawFlags_None); 
         }
 
     ImGui::End();
@@ -74,5 +81,26 @@ void MenuScene::update()
 
         ImGui::End();
     }
+
+    // Render background scene
+    //-------------------------
+
+    ShaderPrograms::cel.use();
+    m_light.use();
+    m_camera.direction({ -0.5F, -0.3F, 1.0F });
+    m_camera.position({ 2.0F, 3.0F, -3.6F });
+    m_camera.use();
+    Models::teapot.use();
+
+    InstanceUBO instanceUbo;
+    instanceUbo.model = glm::mat4(1.0F);
+    glProgramUniformMatrix4fv(ShaderPrograms::cel.id(), glGetUniformLocation(ShaderPrograms::cel.id(), "model"), 1, false, (GLfloat*)&instanceUbo.model);
+
+    for (auto &iter : Models::teapot.all().meshes)
+    {
+        // iter.first->use();
+        glDrawElementsInstanced(GL_TRIANGLES, iter.second.size, GL_UNSIGNED_INT, 0, 1);
+    }
+    
 
 }
