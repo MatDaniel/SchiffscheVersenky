@@ -5,6 +5,8 @@
 
 #include "draw/util/Vertex.hpp"
 #include "Materials.hpp"
+#include "util/fnv_hash.hpp"
+#include "draw/Game.hpp"
 
 /**
  * @brief Represents a model with multiple shapes, just like a scene.
@@ -32,6 +34,11 @@ public:
         std::unordered_map<Material*, IndexInfo> meshes { };
     };
 
+    // Constants
+    //-----------
+
+    static constexpr size_t BUFFERING_AMOUNT = Game::BUFFERING_AMOUNT;
+
     // Constructors
     //--------------
 
@@ -55,9 +62,9 @@ public:
     // Getters
     //---------
 
-    inline GLuint vao() const noexcept
+    inline GLuint vao(size_t index) const noexcept
     {
-        return m_vao;
+        return m_vao[index];
     }
 
     inline GLuint vbo() const noexcept
@@ -80,14 +87,6 @@ public:
         return m_all;
     }
 
-    // Utility
-    //---------
-
-    inline void use() const noexcept
-    {
-        glBindVertexArray(m_vao);
-    }
-
 private:
 
     // Properties
@@ -95,7 +94,7 @@ private:
 
     // OpenGL Handles
 
-    GLuint m_vao;
+    GLuint m_vao[BUFFERING_AMOUNT];
     union {
         struct {
             GLuint m_vbo;
@@ -110,6 +109,13 @@ private:
     std::vector<Part> m_parts;
 
 };
+
+inline bool operator==(const Model::IndexInfo& lhs, const Model::IndexInfo& rhs) {
+    return lhs.offset == rhs.offset
+        && lhs.size == rhs.size;
+}
+
+SHIV_FNV_HASH(Model::IndexInfo)
 
 namespace Models
 {

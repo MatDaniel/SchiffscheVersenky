@@ -7,10 +7,10 @@
 #include <glm/gtc/matrix_transform.hpp>
 
 #include "draw/Game.hpp"
-#include "draw/res/ShaderPrograms.hpp"
 #include "draw/res/Models.hpp"
 #include "draw/res/Materials.hpp"
-#include "draw/util/UniformBufferObjects.hpp"
+#include "draw/SceneRenderer.hpp"
+#include "FieldSetupScene.hpp"
 
 void MenuScene::update()
 {
@@ -77,6 +77,7 @@ void MenuScene::update()
             if (ImGui::Button("Connect"))
             {
                 // TODO: Connect to server
+                Scene::load<FieldSetupScene>();
             }
 
         ImGui::End();
@@ -84,23 +85,19 @@ void MenuScene::update()
 
     // Render background scene
     //-------------------------
+   
+    Game::renderer()->info().camera.direction = { -0.3F, -0.3F, 1.0F };
+    Game::renderer()->info().camera.position = { 6.0F, 6.0F, -17.8F };
+    Game::renderer()->uploadCamera();
 
-    ShaderPrograms::cel.use();
-    m_light.use();
-    m_camera.direction({ -0.5F, -0.3F, 1.0F });
-    m_camera.position({ 2.0F, 3.0F, -3.6F });
-    m_camera.use();
-    Models::teapot.use();
+    for (int x = -10; x <= 10; x++)
+        for (int y = -10; y <= 10; y++)
+            Game::renderer()->draw(
+                glm::translate(glm::mat4(1.0F), glm::vec3(x*8.0F, 0.0F, y*8.0F)), // Position
+                Models::teapot, // Model
+                Models::teapot.all().meshes.begin()->second, // Which part of the model?
+                Materials::green); // What material to use for rendering?
 
-    InstanceUBO instanceUbo;
-    instanceUbo.model = glm::mat4(1.0F);
-    glProgramUniformMatrix4fv(ShaderPrograms::cel.id(), glGetUniformLocation(ShaderPrograms::cel.id(), "model"), 1, false, (GLfloat*)&instanceUbo.model);
-
-    for (auto &iter : Models::teapot.all().meshes)
-    {
-        // iter.first->use();
-        glDrawElementsInstanced(GL_TRIANGLES, iter.second.size, GL_UNSIGNED_INT, 0, 1);
-    }
     
 
 }

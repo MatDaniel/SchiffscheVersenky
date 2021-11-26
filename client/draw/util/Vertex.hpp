@@ -18,6 +18,7 @@ struct Vertex {
 
 
 };
+
 inline bool operator==(const Vertex& lhs, const Vertex& rhs) {
     return lhs.position == rhs.position
         && lhs.normal == rhs.normal

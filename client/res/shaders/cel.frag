@@ -2,30 +2,25 @@
 
 out vec4 FragColor;
 
-in vec2 TexCoords;
-in vec3 WorldPos;
-in vec3 Normal;
-in vec3 CamPos;
+layout (location = 0) in vec3 Normal;
+layout (location = 1) in vec2 TexCoords;
+layout (location = 2) in vec3 WorldPos;
+layout (location = 3) in vec4 ColTilt;
 
-// directional light info 
-layout (binding = 1, std140) uniform SunLight
+// Will be updated each frame at the start.
+layout (binding = 0, std140) uniform SceneUBO
 {
-    vec4 direction;
-} sunLight;
+    layout (offset = 0) mat4 projMtx;
+    layout (offset = 64) mat4 viewMtx;
+    layout (offset = 128) vec3 sunDir;
+    layout (offset = 140) float time;
+} scene;
 
-// material info
-struct Material
-{
-    sampler2D albedoMap;
-    sampler2D normalMap;
-    // r = metallic, g = roughness, b = ambient occlusion
-    sampler2D mraoMap;
-};
-layout (location = 0) uniform Material material;
+layout (location = 0) uniform sampler2D tex;
 
 void main()
 {
-    float intensity = dot(normalize(-vec3(sunLight.direction)), normalize(Normal));
+    float intensity = dot(normalize(-vec3(scene.sunDir)), normalize(Normal));
     if (intensity > 0.999)
     {
         FragColor = vec4(1.0);

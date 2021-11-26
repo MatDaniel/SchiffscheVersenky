@@ -8,6 +8,8 @@
 
 #include "Resource.hpp"
 #include "util/imemstream.hpp"
+#include "draw/Game.hpp"
+#include "draw/SceneRenderer.hpp"
 
 namespace to = tinyobj;
 
@@ -68,7 +70,7 @@ namespace
         /**
          * @brief Parses an embedded resource.
          * @param rid The id of the embedded resource to parse. 
-         * @retval Whether the material was parsed successfully or not.
+         * @retval Whether the model was parsed successfully or not.
          */
         inline bool load(int rid)
         {
@@ -87,7 +89,7 @@ namespace
 }
 
 Model::Model()
-    : m_vao(0)
+    : m_vao { }
     , m_vbo(0)
     , m_ebo(0)
     , m_all("ALL")
@@ -105,7 +107,7 @@ Model::Model(int rid)
     // in case the model loading fails, we have allocated
     // valid buffers in opengl, so that we won't conflict
     // with any other opengl buffers, when using them.
-    glCreateVertexArrays(1, &m_vao);
+    glCreateVertexArrays(BUFFERING_AMOUNT, m_vao);
     glCreateBuffers(2, m_buffers);
 
     // Parse embedded resource mesh file with tinyobj_loader.
@@ -282,35 +284,44 @@ Model::Model(int rid)
     // describe the content in the buffer for opengl.
     //
 
-    // Constants
-    constexpr GLuint POSITION_ATTRIBINDEX = 0;
-    constexpr GLuint NORMAL_ATTRIBINDEX = 1;
-    constexpr GLuint TEXCOORDS_ATTRIBINDEX = 2;
+    for (size_t i = 0; i < BUFFERING_AMOUNT; i++)
+    {
 
-    // Bind the buffers to the vertex array object.
-    glVertexArrayVertexBuffer(m_vao, POSITION_ATTRIBINDEX, m_vbo, 0, sizeof(Vertex));
-    glVertexArrayVertexBuffer(m_vao, NORMAL_ATTRIBINDEX, m_vbo, 0, sizeof(Vertex));
-    glVertexArrayVertexBuffer(m_vao, TEXCOORDS_ATTRIBINDEX, m_vbo, 0, sizeof(Vertex));
-    glVertexArrayElementBuffer(m_vao, m_ebo);
+        // Constants
+        constexpr GLuint POSITION_ATTRIBINDEX = ShaderPipeline::POSITION_ATTRIBINDEX;
+        constexpr GLuint NORMAL_ATTRIBINDEX = ShaderPipeline::NORMAL_ATTRIBINDEX;
+        constexpr GLuint TEXCOORDS_ATTRIBINDEX = ShaderPipeline::TEXCOORDS_ATTRIBINDEX;
 
-    // Upload the vertices and indices to the gpu buffers.
-    glNamedBufferData(m_vbo, sizeof(Vertex) * vertices.size(), vertices.data(), GL_STATIC_DRAW);
-    glNamedBufferData(m_ebo, sizeof(uint32_t) * total_indices, indices, GL_STATIC_DRAW);
+        // Upload the vertices and indices to the gpu buffers.
+        glNamedBufferData(m_vbo, sizeof(Vertex) * vertices.size(), vertices.data(), GL_STATIC_DRAW);
+        glNamedBufferData(m_ebo, sizeof(uint32_t) * total_indices, indices, GL_STATIC_DRAW);
 
-    // Enable vertex attributes
-    glEnableVertexArrayAttrib(m_vao, POSITION_ATTRIBINDEX);
-    glEnableVertexArrayAttrib(m_vao, NORMAL_ATTRIBINDEX);
-    glEnableVertexArrayAttrib(m_vao, TEXCOORDS_ATTRIBINDEX);
+        // Describe the vertex buffer attributes
+        glVertexArrayAttribFormat(m_vao[i], POSITION_ATTRIBINDEX, sizeof(Vertex::position) / sizeof(float), GL_FLOAT, GL_FALSE, offsetof(Vertex, position));
+        glVertexArrayAttribFormat(m_vao[i], NORMAL_ATTRIBINDEX, sizeof(Vertex::normal) / sizeof(float), GL_FLOAT, GL_FALSE, offsetof(Vertex, normal));
+        glVertexArrayAttribFormat(m_vao[i], TEXCOORDS_ATTRIBINDEX, sizeof(Vertex::texCoords) / sizeof(float), GL_FLOAT, GL_FALSE, offsetof(Vertex, texCoords));
 
-    // Describe the vertex buffer attributes
-    glVertexArrayAttribFormat(m_vao, POSITION_ATTRIBINDEX, sizeof(Vertex::position) / sizeof(float), GL_FLOAT, GL_FALSE, offsetof(Vertex, position));
-    glVertexArrayAttribFormat(m_vao, NORMAL_ATTRIBINDEX, sizeof(Vertex::normal) / sizeof(float), GL_FLOAT, GL_FALSE, offsetof(Vertex, normal));
-    glVertexArrayAttribFormat(m_vao, TEXCOORDS_ATTRIBINDEX, sizeof(Vertex::texCoords) / sizeof(float), GL_FLOAT, GL_FALSE, offsetof(Vertex, texCoords));
+        // Bind attributes to bindings
+        glVertexArrayAttribBinding(m_vao[i], POSITION_ATTRIBINDEX, 0);
+        glVertexArrayAttribBinding(m_vao[i], NORMAL_ATTRIBINDEX, 0);
+        glVertexArrayAttribBinding(m_vao[i], TEXCOORDS_ATTRIBINDEX, 0);
 
-    // Bind attributes to bindings
-    glVertexArrayAttribBinding(m_vao, POSITION_ATTRIBINDEX, 0);
-    glVertexArrayAttribBinding(m_vao, NORMAL_ATTRIBINDEX, 0);
-    glVertexArrayAttribBinding(m_vao, TEXCOORDS_ATTRIBINDEX, 0);
+        // Enable vertex attributes
+        glEnableVertexArrayAttrib(m_vao[i], POSITION_ATTRIBINDEX);
+        glEnableVertexArrayAttrib(m_vao[i], NORMAL_ATTRIBINDEX);
+        glEnableVertexArrayAttrib(m_vao[i], TEXCOORDS_ATTRIBINDEX);
+
+        // Bind the buffers to the vertex array object.
+        glVertexArrayVertexBuffer(m_vao[i], 0, m_vbo, 0, sizeof(Vertex));
+        glVertexArrayElementBuffer(m_vao[i], m_ebo);
+
+        // Setup divisor per vertex
+        glVertexArrayBindingDivisor(m_vao[i], 0, 0);
+
+        // Init vao for instancing
+        Game::renderer()->initVAOInstancing(i, m_vao[i]);
+
+    }
 
     // Cleanup
     delete[] indices;
@@ -318,13 +329,15 @@ Model::Model(int rid)
 }
 
 Model::Model(Model &&other) noexcept
-    : m_vao(other.m_vao)
-    , m_vbo(other.m_vbo)
+    : m_vbo(other.m_vbo)
     , m_ebo(other.m_ebo)
     , m_all(std::move(other.m_all))
     , m_parts(std::move(other.m_parts))
 {
-    other.m_vao = 0;
+    for (size_t i = 0; i < BUFFERING_AMOUNT; i++)
+        m_vao[i] = other.m_vao[i];
+    for (size_t i = 0; i < BUFFERING_AMOUNT; i++)
+        other.m_vao[i] = 0;
     other.m_vbo = 0;
     other.m_ebo = 0;
 }
@@ -333,14 +346,16 @@ Model& Model::operator=(Model &&other) noexcept
 {
 
     // Copy values
-    m_vao = other.m_vao;
+    for (size_t i = 0; i < BUFFERING_AMOUNT; i++)
+        m_vao[i] = other.m_vao[i];
     m_vbo = other.m_vbo;
     m_ebo = other.m_ebo;
     m_all = std::move(other.m_all);
     m_parts = std::move(other.m_parts);
 
     // Invalidate other mesh
-    other.m_vao = 0;
+    for (size_t i = 0; i < BUFFERING_AMOUNT; i++)
+        other.m_vao[i] = 0;
     other.m_vbo = 0;
     other.m_ebo = 0;
 
@@ -351,7 +366,7 @@ Model& Model::operator=(Model &&other) noexcept
 
 Model::~Model()
 {
-    glDeleteVertexArrays(1, &m_vao);
+    glDeleteVertexArrays(BUFFERING_AMOUNT, m_vao);
     glDeleteBuffers(2, m_buffers);
 }
 

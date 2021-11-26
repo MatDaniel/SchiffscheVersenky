@@ -24,6 +24,8 @@ int main(
 	int         argc,
 	const char* argv[]
 ) {
+
+	/*
 	auto ServerAddress = DefaultServerAddress;
 	auto PortNumber = DefaultPortNumber;
 	if (argc >= 2)
@@ -57,7 +59,8 @@ int main(
 	}
 
 	SsLog("exiting handler loop");
+	*/
 
 
-    // return Game::run(Scene::getter<MenuScene>());
+    return Game::run(Scene::getter<MenuScene>());
 }

@@ -13,20 +13,28 @@
 #include <chrono>
 
 #include "resource.h"
-#include "res/ShaderPrograms.hpp"
-#include "res/Textures.hpp"
 #include "res/Models.hpp"
+#include "res/Textures.hpp"
 #include "res/Materials.hpp"
+#include "res/ShaderStages.hpp"
+#include "res/ShaderPipelines.hpp"
+#include "SceneRenderer.hpp"
 
 // Properties
 //------------
 
+// Window & rendering
 static glm::uvec2 s_windowSize { 960, 540 };
-static std::chrono::high_resolution_clock s_timer;
-static auto s_frameStart = s_timer.now();
-static float s_deltaTime = 0.0F;
 static GLFWwindow *s_window = nullptr;
 static std::optional<int> s_exitCode;
+static SceneRenderer *s_renderer;
+
+// Timings
+static std::chrono::high_resolution_clock s_timer;
+static auto s_firstFrame = s_timer.now();
+static auto s_frameStart = s_firstFrame;
+static float s_deltaTime = 0.0F;
+static float s_time = 0.0F;
 
 // Callbacks
 //-----------
@@ -46,6 +54,9 @@ static void framebufferSizeCallback(GLFWwindow* window, int width, int height)
 
     // Set viewport to the size of the actual window
     glViewport(0, 0, width, height);
+
+    // Update projection
+    s_renderer->uploadProjection();
 
 }
 
@@ -153,10 +164,14 @@ static bool init()
 static void initResources()
 {
 
-    // Shader Programs
-    ShaderPrograms::cel = {{
-        { GL_VERTEX_SHADER, IDR_VSHA_CEL },
-        { GL_FRAGMENT_SHADER, IDR_FSHA_CEL }
+    // Shader Stages
+    ShaderStages::Vertex::cel = { GL_VERTEX_SHADER, IDR_VSHA_CEL };
+    ShaderStages::Fragment::cel = { GL_FRAGMENT_SHADER, IDR_FSHA_CEL };
+
+    // Shader Pipelines
+    ShaderPipelines::cel = {{
+        &ShaderStages::Vertex::cel,
+        &ShaderStages::Fragment::cel
     }};
 
     // Models
@@ -173,6 +188,9 @@ int Game::run(Scene::GetterFunc initalSceneGetter)
     // Initializes the window and OpenGL.
     if (!init()) return EXIT_FAILURE;
 
+    // Create scene renderer
+    s_renderer = new SceneRenderer();
+
     // Load resources
     initResources();
 
@@ -187,6 +205,7 @@ int Game::run(Scene::GetterFunc initalSceneGetter)
         auto frameEnd = s_timer.now();
         using fdur = std::chrono::duration<float>;
         s_deltaTime = std::chrono::duration_cast<fdur>(frameEnd - s_frameStart).count();
+        s_time = std::chrono::duration_cast<fdur>(frameEnd - s_firstFrame).count();
         s_frameStart = frameEnd;
 
         // Pulls the IO events. (keyboard input, mouse, etc.)
@@ -200,6 +219,9 @@ int Game::run(Scene::GetterFunc initalSceneGetter)
         // Update game logic
         Scene::current()->update();
 
+        // Render scene
+        s_renderer->render();
+
         // Render frame in imgui.
         ImGui::Render();
         ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
@@ -208,6 +230,9 @@ int Game::run(Scene::GetterFunc initalSceneGetter)
         glfwSwapBuffers(s_window);
 
     }
+
+    // Delete scene renderer
+    delete s_renderer;
 
     // Terminates GLFW and all its resources.
     glfwTerminate();
@@ -227,7 +252,17 @@ float Game::deltaTime() noexcept
     return s_deltaTime;
 }
 
+float Game::time() noexcept
+{
+    return s_time;
+}
+
 const glm::uvec2 &Game::windowSize() noexcept
 {
     return s_windowSize;
+}
+
+SceneRenderer *Game::renderer() noexcept
+{
+    return s_renderer;
 }

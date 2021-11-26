@@ -5,8 +5,13 @@
 
 #include "Scene.hpp"
 
+class SceneRenderer;
+
 namespace Game
 {
+
+    // Constants
+    constexpr size_t BUFFERING_AMOUNT = 2;
 
     /**
      * @brief Initializes the game and executes the game loop.
@@ -28,9 +33,19 @@ namespace Game
     float deltaTime() noexcept;
 
     /**
+     * @retval The time since the first frame.
+     */
+    float time() noexcept;
+
+    /**
      * @retval The size of the current viewport and window.
      */
     const glm::uvec2 &windowSize() noexcept;
+
+    /** 
+     * @retval A model renderer.
+     */
+    SceneRenderer *renderer() noexcept;
 
 }
 

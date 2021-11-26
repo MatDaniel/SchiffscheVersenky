@@ -1,7 +1,7 @@
 #ifndef SHIFVRSKY_RESOURCE_HPP
 #define SHIFVRSKY_RESOURCE_HPP
 
-#include <cstdint>
+#include <string>
 
 #include "util/imemstream.hpp"
 
@@ -31,7 +31,12 @@ public:
 
     inline imemstream stream() const
     {
-        return imemstream((const char*) m_data, m_size);
+        return imemstream((const char*)m_data, m_size);
+    }
+
+    inline std::string str() const
+    {
+        return std::string((const char*)m_data, m_size);
     }
 
 private:
