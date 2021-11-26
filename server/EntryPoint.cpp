@@ -7,7 +7,7 @@ void NetworkDispatchTest(
 ) {
 	switch (NetworkRequest->IoControlCode) {
 	case NetWorkIoControl::IoRequestPacket::INCOMING_CONNECTION:
-		NetworkRequest->IoRequestStatus = NetworkDevice->AcceptIncomingConnection(NetworkRequest);
+		NetworkDevice->AcceptIncomingConnection(NetworkRequest);
 		break;
 
 	case NetWorkIoControl::IoRequestPacket::INCOMING_PACKET:

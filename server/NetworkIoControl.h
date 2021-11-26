@@ -57,7 +57,7 @@ public:
 			STATUS_REQUEST_COMPLETED = 1
 		} IoRequestStatus;
 	};
-	typedef void MajorFunction(           // this has to handle the networking requests being both capable of reading and sending requests
+	typedef void (*MajorFunction)(        // this has to handle the networking requests being both capable of reading and sending requests
 		NetWorkIoControl* NetworkDevice,  // a pointer to the NetWorkIoController responsible of said requestpacket
 		IoRequestPacket*  NetworkRequest, // a pointer to a network request packet describing the current request
 		void*             UserContext     // A pointer to caller defined data thats forwarded to the callback in every call, could be the GameManager class or whatever

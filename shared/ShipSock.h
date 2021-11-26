@@ -54,9 +54,12 @@ inline long SsAssertExecute(
 
 	return 0;
 }
+
+// Make this mess multithreading safe for the client due to the uhm, bad structure...
+inline bool SsLastExpressionEvaluated;
 #define SsAssert(Expression, FailString, ...)\
-	((SsAssertExecute(!!(Expression), (FailString), __VA_ARGS__) &&\
-	(__debugbreak(), 1)), (Expression))
+	((SsAssertExecute(SsLastExpressionEvaluated = (Expression), (FailString), __VA_ARGS__) &&\
+	(__debugbreak(), 1)), SsLastExpressionEvaluated)
 #define SsLog(...) SsAssertExecute(-1, __VA_ARGS__)
 #elif
 #define SsAssert(...)
@@ -140,3 +143,16 @@ public:
 
 inline const char* DefaultPortNumber    = "50001";
 inline const char* DefaultServerAddress = "127.0.0.1";
+
+#define PACKET_BUFFER_SIZE 0x2000
+#define SSOCKET_DISCONNECTED 0
+
+enum ShipSocketStatus {
+	STATUS_SOCKETERROR = SOCKET_ERROR,
+	STATUS_SUCESSFUL = 0,
+	STATUS_WORK_PENDING = 1,
+	STATUS_FAILED_TO_CONNECT = -2,
+
+
+};
+

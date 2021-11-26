@@ -99,9 +99,9 @@ NetWorkIoControl::IoRequestPacket::IoRequestStatusType NetWorkIoControl::AcceptI
 	if (SsAssert(AcceptingClient.AssociatedClient == INVALID_SOCKET,
 		"failed to open connection, wtf happened i have no idea: %d",
 		WSAGetLastError()))
-		return IoRequestPacket::IoRequestStatusType::STATUS_REQUEST_ERROR;
+		return NetworkRequest->IoRequestStatus = IoRequestPacket::IoRequestStatusType::STATUS_REQUEST_ERROR;
 	ConnectedClients.emplace_back(AcceptingClient);
-	return IoRequestPacket::IoRequestStatusType::STATUS_REQUEST_COMPLETED;
+	return NetworkRequest->IoRequestStatus = IoRequestPacket::IoRequestStatusType::STATUS_REQUEST_COMPLETED;
 }
 
 
