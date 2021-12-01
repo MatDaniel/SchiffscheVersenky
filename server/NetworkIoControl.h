@@ -11,26 +11,32 @@
 
 #include "ShipSock.h"
 #include <vector>
-#include <shared_mutex>
 
 
+
+class NetWorkIoControl;
+
+class ClientController {
+	friend NetWorkIoControl;
+public:
+	SOCKET GetSocket() const;
+
+	bool operator==(
+		const ClientController* Rhs
+	) const;
+
+private:
+	ClientController(size_t InformationSize);
+
+	SOCKET   AssociatedClient;
+	sockaddr ClientInformation;
+	int32_t  ClientInfoSize;
+};
 
 
 class NetWorkIoControl 
 	: private SocketWrap {
 public:
-	class ClientController {
-		friend NetWorkIoControl;
-	public:
-
-
-
-	private:
-		
-		SOCKET   AssociatedClient;
-		sockaddr ClientInformation;
-		int32_t  ClientInfoSize;
-	};
 
 
 
@@ -53,13 +59,14 @@ public:
 			STATUS_REQUEST_ERROR = -3,
 			STATUS_REQUEST_NOT_HANDLED = -2,
 			INVALID_STATUS = -1,
-			STATUS_REQUEST_IGNORED = 0,
-			STATUS_REQUEST_COMPLETED = 1
+			STATUS_REQUEST_COMPLETED = 0,
+			STATUS_REQUEST_IGNORED = 1,
+			STATUS_LIST_MODIFIED = 2
 		} IoRequestStatus;
 	};
 	typedef void (*MajorFunction)(        // this has to handle the networking requests being both capable of reading and sending requests
-		NetWorkIoControl* NetworkDevice,  // a pointer to the NetWorkIoController responsible of said requestpacket
-		IoRequestPacket*  NetworkRequest, // a pointer to a network request packet describing the current request
+		NetWorkIoControl& NetworkDevice,  // a pointer to the NetWorkIoController responsible of said requestpacket
+		IoRequestPacket&  NetworkRequest, // a pointer to a network request packet describing the current request
 		void*             UserContext     // A pointer to caller defined data thats forwarded to the callback in every call, could be the GameManager class or whatever
 	);
 
@@ -70,21 +77,22 @@ public:
 	~NetWorkIoControl();
 
 	SOCKET GetServerSocketHandle();
-	IoRequestPacket::IoRequestStatusType AcceptIncomingConnection(
-		IoRequestPacket* NetworkRequest
+	void AcceptIncomingConnection(
+		IoRequestPacket& NetworkRequest
 	);
 
-	long LaunchServerIoManagerAndRegisterServiceCallback( // Starts internally handling accept requests passively,
-	                                                      // notifies caller over callbacks and handles io requests
-	                                                      // @Sherlock will have to call this with his gamemanager ready,
-	                                                      // the callback is reponsible for handling incoming io and connections.
-		MajorFunction IoCompleteRequestRoutine,           // a function pointer to a callback that handles socket operations
-		void*         UserContext                         // a user suplied buffer containign arbitrary data forwarded to the callback
+	long PollNetworkConnectionsAndDispatchCallbacks( // Starts internally handling accept requests passively,
+	                                                 // notifies caller over callbacks and handles io requests
+	                                                 // @Sherlock will have to call this with his gamemanager ready,
+	                                                 // the callback is reponsible for handling incoming io and connections.
+		MajorFunction IoCompleteRequestRoutine,      // a function pointer to a callback that handles socket operations
+		void*         UserContext,                   // a user suplied buffer containign arbitrary data forwarded to the callback
+		int32_t       Timeout = -1                   // specifies the timeout count the functions waits on poll till it returns
 	);
 
 private:
 
-	std::shared_mutex NetworkLock;
-	SOCKET LocalServerSocket = INVALID_SOCKET;
+	SOCKET                        LocalServerSocket = INVALID_SOCKET;
 	std::vector<ClientController> ConnectedClients;
+	std::vector<WSAPOLLFD>        SocketDescriptorTable;
 };

@@ -1,9 +1,25 @@
 // This implements the ClientContoller that manages the clients and provides an IO bridge
 #include "NetworkIoControl.h"
 
+ClientController::ClientController(
+	size_t InformationSize
+) : ClientInfoSize(InformationSize) {}
+
+SOCKET ClientController::GetSocket() const {
+	return AssociatedClient;
+}
+
+bool ClientController::operator==(
+	const ClientController* Rhs
+	) const {
+	return this == Rhs;
+}
+
+
+
 NetWorkIoControl::NetWorkIoControl(
 	const char* PortNumber,
-	long* OutResponse
+	long*       OutResponse
 ) {
 	SsLog("Preparing internal server structures for async IO operation\n"
 		"Retrieving portnumber information for localhost\n");
@@ -63,6 +79,9 @@ NetWorkIoControl::NetWorkIoControl(
 		WSAGetLastError()))
 		goto Cleanup;
 
+	SocketDescriptorTable.emplace_back(WSAPOLLFD{ 
+		.fd = LocalServerSocket,
+		.events = POLLIN });
 	*OutResponse = 0;
 	return;
 
@@ -86,174 +105,149 @@ SOCKET NetWorkIoControl::GetServerSocketHandle() {
 	return LocalServerSocket;
 }
 
-NetWorkIoControl::IoRequestPacket::IoRequestStatusType NetWorkIoControl::AcceptIncomingConnection(
-	IoRequestPacket* NetworkRequest
+void NetWorkIoControl::AcceptIncomingConnection(
+	IoRequestPacket& NetworkRequest
 ) {
 	SsLog("Passing through incoming connection\n");
-	NetWorkIoControl::ClientController AcceptingClient;
-	AcceptingClient.ClientInfoSize = sizeof(AcceptingClient.ClientInformation);
+	ClientController AcceptingClient(sizeof(ClientController::ClientInformation));
 	AcceptingClient.AssociatedClient = accept(
-		NetworkRequest->RequestingSocket,
+		NetworkRequest.RequestingSocket,
 		&AcceptingClient.ClientInformation,
 		&AcceptingClient.ClientInfoSize);
 	if (SsAssert(AcceptingClient.AssociatedClient == INVALID_SOCKET,
 		"failed to open connection, wtf happened i have no idea: %d",
-		WSAGetLastError()))
-		return NetworkRequest->IoRequestStatus = IoRequestPacket::IoRequestStatusType::STATUS_REQUEST_ERROR;
+		WSAGetLastError())) {
+
+		NetworkRequest.IoRequestStatus = IoRequestPacket::STATUS_REQUEST_ERROR;
+		return;
+	}
+
 	ConnectedClients.emplace_back(AcceptingClient);
-	return NetworkRequest->IoRequestStatus = IoRequestPacket::IoRequestStatusType::STATUS_REQUEST_COMPLETED;
+	SocketDescriptorTable.emplace_back(WSAPOLLFD{
+		.fd = AcceptingClient.AssociatedClient,
+		.events = POLLIN });
+	NetworkRequest.IoRequestStatus = IoRequestPacket::STATUS_LIST_MODIFIED;
 }
 
 
 
-long NetWorkIoControl::LaunchServerIoManagerAndRegisterServiceCallback(
+long NetWorkIoControl::PollNetworkConnectionsAndDispatchCallbacks(
 	MajorFunction IoCompleteRequestRoutine,
-	void*         UserContext
+	void*         UserContext,
+	int32_t       Timeout
 ) {
-	SsLog("Starting to accept arbitrary requests and setting up worker threads for possible clients");
+	auto Result = WSAPoll(
+		SocketDescriptorTable.data(),
+		SocketDescriptorTable.size(),
+		Timeout);
+	if (SsAssert(Result <= 0,
+		"WSAPoll failed to query socket states with: %d\n",
+		WSAGetLastError()))
+		return Result;
 
-	// We dont have to do anything until we get the first client, this will accept the first client and then start the main server loop until we hit an error
-	ClientController PossiblyClient;
-	PossiblyClient.ClientInfoSize = (long)sizeof(PossiblyClient.ClientInformation);
-	
-	SsLog("Setting up socket descriptor tables and waiting for first client");
-	auto ProcessHeap = GetProcessHeap();
-	auto SocketArray = (WSAPOLLFD*)HeapAlloc(
-		ProcessHeap,
-		0,
-		sizeof(WSAPOLLFD));
-	if (SsAssert(!SocketArray,
-		"failed to allocate Socket descriptor table, critical with: %d",
-		GetLastError()))
-		return -1;
-	size_t CurrentFdArraySize = 1;
-	SocketArray[0].fd = LocalServerSocket;
-	SocketArray[0].events = POLLIN;
+	SsLog("Dispatching to notified socket commands\n");
+	for (auto i = 0; i < SocketDescriptorTable.size(); ++i) {
 
-	for (;;) {
-		size_t NumberOfSockets = ConnectedClients.size() + 1; // includes the server socket as that has to be polled too
-		switch ((NumberOfSockets <=> CurrentFdArraySize)._Value) {
-		case -1:
-			// Regenerate the FD-Array as client was removed
-			if (auto NewSocketArray = (WSAPOLLFD*)HeapReAlloc(
-				ProcessHeap,
-				NULL,
-				SocketArray,
-				NumberOfSockets * sizeof(WSAPOLLFD))) {
+		auto BuildNetworkRequest = [this](
+			SOCKET                               SocketDescriptor,
+			IoRequestPacket::IoServiceRoutineCtl IoControlCode
+			) -> IoRequestPacket {
 
-				for (int i = 0; i < NumberOfSockets - 1; ++i)
-					NewSocketArray[i + 1].fd = ConnectedClients[i].AssociatedClient,
-					NewSocketArray[i + 1].events = POLLIN;
-				SocketArray = NewSocketArray;
-				break;
-			}
-			SsAssert(1,
-				"failed to regnerate Socket descriptor table, cirtical failure\n"
-				"Array at [%p:%d]\n",
-				SocketArray, NumberOfSockets);
-			break;
-
-		case 1:
-			if (auto NewSocketArray = (WSAPOLLFD*)HeapReAlloc(
-				ProcessHeap,
-				NULL,
-				SocketArray,
-				NumberOfSockets * sizeof(WSAPOLLFD))) {
-			
-				NewSocketArray[NumberOfSockets - 1].fd = ConnectedClients[NumberOfSockets - 2].AssociatedClient;
-				NewSocketArray[NumberOfSockets - 1].events = POLLIN;
-				SocketArray = NewSocketArray;
-				break;
-			}
-			SsAssert(1,
-				"failed to add new client to socket descriptor list, heap corruption indicated with: %d\n",
-				GetLastError());
-		}
-
-		auto Result = WSAPoll(
-			SocketArray,
-			NumberOfSockets,
-			-1);
-		if (SsAssert(Result < 0,
-			"WSAPoll failed to query socket states with: %d\n",
-			WSAGetLastError()))
-			break;
-
-		SsLog("Dispatching to notified socket commands \n");
-		for (auto i = 0; i < NumberOfSockets; ++i) {
-
-			// Enmerate said Flags and take response option
-			constexpr int FlagSetArray[] = {
-				POLLERR,
-				POLLHUP,
-				POLLNVAL,
-				POLLRDNORM,
-				POLLWRNORM
-			};
-
-			// Skipping sockets with no pending operations
-			if (!SocketArray[i].revents)
-				goto EndOfFlagLoop;
-			for (auto j = 0; j < _countof(FlagSetArray); ++j) {
-				
-				IoRequestPacket UniversalRequestPacket{
-					.RequestingSocket = SocketArray[i].fd,
-					.OptionalClient = i ? &ConnectedClients[i - 1] : nullptr,
-					.IoRequestStatus = IoRequestPacket::STATUS_REQUEST_NOT_HANDLED
-				};
-				switch (SocketArray[i].revents & FlagSetArray[j]) {
-				case POLLERR:
-					SsAssert(1,
-						"an error occured on socket [%p:%p] with: %d\n",
-						SocketArray[i].fd,
-						&SocketArray[i],
-						WSAGetLastError());
-					return -4;
-
-				case POLLHUP:
-					SsLog("Socket is disconnecting [%p]\n",
-						SocketArray[i].fd);
-					UniversalRequestPacket.IoControlCode = IoRequestPacket::SOCKET_DISCONNECTED;
-					IoCompleteRequestRoutine(
-						this,
-						&UniversalRequestPacket,
-						UserContext);
-					switch (UniversalRequestPacket.IoRequestStatus) {
-					case IoRequestPacket::STATUS_REQUEST_COMPLETED:
-						break;
-					case IoRequestPacket::STATUS_REQUEST_IGNORED:;
-						// remove socket from descriptor list
+				// Lookup client list for matching client entry and create association
+				ClientController* Associate = nullptr;
+				for (auto& Client : ConnectedClients)
+					if (Client.GetSocket() == SocketDescriptor) {
+						Associate = &Client; break;
 					}
-					break;
 
-				case POLLNVAL:
-					SsAssert(1,
-						"an invalid socket was specified that was not previously closed and removed from the descriptor list,\n"
-						"this indicates a server crash: [%p]\n",
-						&SocketArray[i]);
-					return -3;
+				return IoRequestPacket{
+						.IoControlCode = IoControlCode,
+						.OptionalClient = Associate,
+						.IoRequestStatus = IoRequestPacket::STATUS_REQUEST_NOT_HANDLED };
+		};
 
-				case POLLRDNORM:
-					SsLog("Socket [%p] is requesting to receive a packet\n",
-						SocketArray[i].fd);
-
-					UniversalRequestPacket.IoControlCode = i ? IoRequestPacket::INCOMING_PACKET : IoRequestPacket::INCOMING_CONNECTION;
-					IoCompleteRequestRoutine(
-						this,
-						&UniversalRequestPacket,
-						UserContext);
-
-
-				case POLLWRNORM:;
-				}
-			}
-		EndOfFlagLoop:;
+		auto ReturnEvent = SocketDescriptorTable[i].revents;
+		if (!ReturnEvent)
+			continue;
+		if (ReturnEvent & POLLERR) {
+			
+			SsAssert(1,
+				"an error occured on socket [%p:%p] with: %d\n",
+				SocketDescriptorTable[i].fd,
+				&SocketDescriptorTable[i],
+				WSAGetLastError());
+			return -4;
 		}
+		if (ReturnEvent & POLLHUP) {
+			
+			SsLog("Socket [%p] disconnected from server\n",
+				SocketDescriptorTable[i].fd);
+			
+			// Notify endpoint of disconnect
+			auto NetworkRequest = BuildNetworkRequest(SocketDescriptorTable[i].fd,
+				IoRequestPacket::SOCKET_DISCONNECTED);
+			IoCompleteRequestRoutine(
+				*this,
+				NetworkRequest,
+				UserContext);
 
+			// Removing client from entry list
+			if (auto Associate = NetworkRequest.OptionalClient)
+				ConnectedClients.erase(
+					std::find(
+						ConnectedClients.begin(),
+						ConnectedClients.end(),
+						Associate));
+			SocketDescriptorTable.erase(
+				SocketDescriptorTable.begin() + i);
 
+			return IoRequestPacket::STATUS_LIST_MODIFIED;
+		}
+		if (ReturnEvent & POLLNVAL) {
+			
+			SsAssert(1,
+				"an invalid socket was specified that was not previously closed and removed from the descriptor list,\n"
+				"this indicates a server crash: [%p]\n",
+				&SocketDescriptorTable[i]);
+			return -3;
+		}
+		if (ReturnEvent & POLLRDNORM) {
+			
+			SsLog("Socket [%p] is requesting to receive a packet\n",
+				SocketDescriptorTable[i].fd);
 
-	EndOfCycle:; 
+			auto NetworkRequest = BuildNetworkRequest(
+				SocketDescriptorTable[i].fd,
+				i ? IoRequestPacket::INCOMING_PACKET : IoRequestPacket::INCOMING_CONNECTION);
+			IoCompleteRequestRoutine(
+				*this,
+				NetworkRequest,
+				UserContext);
+
+			switch (NetworkRequest.IoRequestStatus) {
+			case IoRequestPacket::STATUS_LIST_MODIFIED:
+				return NetworkRequest.IoRequestStatus;
+			}
+
+			if (NetworkRequest.IoRequestStatus < 0)
+				return NetworkRequest.IoRequestStatus;
+		}
+		if (ReturnEvent & POLLWRNORM) {
+
+			SsLog("Notifying callee of socket [%p] being ready for data input\n",
+				SocketDescriptorTable[i].fd);
+			auto NetworkRequest = BuildNetworkRequest(
+				SocketDescriptorTable[i].fd,
+				IoRequestPacket::OUTGOING_PACKET_COMPLETE);
+			IoCompleteRequestRoutine(
+				*this,
+				NetworkRequest,
+				UserContext);
+
+			if (NetworkRequest.IoRequestStatus < 0)
+				return NetworkRequest.IoRequestStatus;
+		}
 	}
-	
-	return 0;
+
+	return IoRequestPacket::STATUS_REQUEST_COMPLETED;
 }

@@ -40,8 +40,8 @@ public:
 			STATUS_REQUEST_ERROR = -3,
 			STATUS_REQUEST_NOT_HANDLED = -2,
 			INVALID_STATUS = -1,
-			STATUS_REQUEST_IGNORED = 0,
-			STATUS_REQUEST_COMPLETED = 1
+			STATUS_REQUEST_COMPLETED = 0,
+			STATUS_REQUEST_IGNORED = 1,
 		} IoRequestStatus;
 	};
 	typedef void(*MajorFunction)(                // this has to handle the networking requests being both capable of reading and sending requests
