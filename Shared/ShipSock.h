@@ -6,8 +6,8 @@
 #include <WinSock2.h>
 #include <WS2tcpip.h>
 
+
 #ifdef _MSC_VER
-#define _CRT_SECURE_NO_WARNINGS
 #include <cstdio>
 #include <intrin.h>
 #include <atomic>

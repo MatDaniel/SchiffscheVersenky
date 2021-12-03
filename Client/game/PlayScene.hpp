@@ -1,7 +1,7 @@
 #ifndef SHIFVRSKY_PLAYSCENE_HPP
 #define SHIFVRSKY_PLAYSCENE_HPP
 
-#include "draw/Scene.hpp"
+#include "../draw/Scene.hpp"
 
 class PlayScene final : public Scene
 {

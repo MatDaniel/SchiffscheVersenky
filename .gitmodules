@@ -16,3 +16,6 @@
 [submodule "3rdparty/tinyobjloader"]
 	path = 3rdparty/tinyobjloader
 	url = https://github.com/tinyobjloader/tinyobjloader.git
+[submodule "3rdparty/spdlog"]
+	path = 3rdparty/spdlog
+	url = https://github.com/gabime/spdlog.git

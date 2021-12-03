@@ -1,7 +1,7 @@
 #ifndef SHIFVRSKY_MENUSCENE_HPP
 #define SHIFVRSKY_MENUSCENE_HPP
 
-#include "draw/Scene.hpp"
+#include "../draw/Scene.hpp"
 
 class MenuScene final : public Scene
 {

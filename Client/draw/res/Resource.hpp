@@ -3,7 +3,7 @@
 
 #include <string>
 
-#include "util/imemstream.hpp"
+#include "../../util/imemstream.hpp"
 
 /**
  * @brief This is a view of an embedded resource.

@@ -7,9 +7,9 @@
 #include <iostream>
 
 #include "Resource.hpp"
-#include "util/imemstream.hpp"
-#include "draw/Game.hpp"
-#include "draw/SceneRenderer.hpp"
+#include "../../util/imemstream.hpp"
+#include "../Game.hpp"
+#include "../SceneRenderer.hpp"
 
 namespace to = tinyobj;
 

@@ -3,10 +3,10 @@
 
 #include <glad/glad.h>
 
-#include "draw/util/Vertex.hpp"
+#include "../../draw/util/Vertex.hpp"
 #include "Materials.hpp"
-#include "util/fnv_hash.hpp"
-#include "draw/Game.hpp"
+#include "../../util/fnv_hash.hpp"
+#include "../Game.hpp"
 
 /**
  * @brief Represents a model with multiple shapes, just like a scene.

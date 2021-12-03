@@ -8,7 +8,7 @@
 
 #include "Textures.hpp"
 #include "ShaderPipelines.hpp"
-#include "util/fnv_hash.hpp"
+#include "../../util/fnv_hash.hpp"
 
 struct Material
 {

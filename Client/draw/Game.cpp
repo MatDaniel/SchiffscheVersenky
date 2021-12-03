@@ -5,14 +5,12 @@
 #include <imgui_impl_opengl3.h>
 #include <glad/glad.h>
 #include <GLFW/glfw3.h>
-#define STB_IMAGE_IMPLEMENTATION
-#include <stb_image.h>
 
 #include <optional>
 #include <iostream>
 #include <chrono>
 
-#include "resource.h"
+#include "../resource.h"
 #include "res/Models.hpp"
 #include "res/Textures.hpp"
 #include "res/Materials.hpp"

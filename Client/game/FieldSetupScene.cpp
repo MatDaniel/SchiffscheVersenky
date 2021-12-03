@@ -5,9 +5,9 @@
 #include <glm/mat4x4.hpp>
 #include <glm/gtc/matrix_transform.hpp>
 
-#include "draw/Game.hpp"
-#include "draw/SceneRenderer.hpp"
-#include "draw/res/Models.hpp"
+#include "../draw/Game.hpp"
+#include "../draw/SceneRenderer.hpp"
+#include "../draw/res/Models.hpp"
 
 FieldSetupScene::FieldSetupScene()
 {

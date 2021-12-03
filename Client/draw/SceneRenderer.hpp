@@ -14,7 +14,7 @@
 #include "res/Textures.hpp"
 #include "res/Models.hpp"
 #include "Game.hpp"
-#include "draw/util/Buffers.hpp"
+#include "util/Buffers.hpp"
 
 struct SceneUBO
 {

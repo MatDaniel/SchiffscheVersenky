@@ -1,7 +1,7 @@
 #ifndef SHIFVRSKY_FIELDSETUPSCENE_HPP
 #define SHIFVRSKY_FIELDSETUPSCENE_HPP
 
-#include "draw/Scene.hpp"
+#include "../draw/Scene.hpp"
 
 class FieldSetupScene final : public Scene
 {

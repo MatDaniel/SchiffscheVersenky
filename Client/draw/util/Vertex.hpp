@@ -3,7 +3,7 @@
 
 #include <glm/glm.hpp>
 
-#include "util/fnv_hash.hpp"
+#include "../../util/fnv_hash.hpp"
 
 struct Vertex {
 

@@ -70,5 +70,5 @@ int main(
 
 
 
-    // return Game::run(Scene::getter<MenuScene>());
+    return Game::run(Scene::getter<MenuScene>());
 }

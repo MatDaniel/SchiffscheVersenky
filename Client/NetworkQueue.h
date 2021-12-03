@@ -2,7 +2,7 @@
 // to inform or retrieve information from a connected server
 
 #define FD_SETSIZE 1
-#include "ShipSock.h"
+#include <ShipSock.h>
 #include <memory>
 
 #ifdef _MSC_VER
