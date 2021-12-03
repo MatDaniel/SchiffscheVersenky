@@ -1,6 +1,33 @@
 // This file implements the Network Io for the client, aka @Lima's zone
 #include "NetworkQueue.h"
 
+
+
+
+
+ServerIoController* ServerIoController::CreateSingletonOverride(
+	const char* ServerName,
+	const char* ServerPort
+) {
+	SsLog("ServerIoCtl Factory called, creating NetworkingObject\n");
+
+	// Magic fuckery cause make_unique cannot normally access a private constructor
+	struct EnableMakeUnique : public ServerIoController {
+		inline EnableMakeUnique(
+			const char* ServerName,
+			const char* ServerPort
+		) : ServerIoController(
+			ServerName,
+			ServerPort) {}
+	};
+	return (InstanceObject = std::make_unique<EnableMakeUnique>(
+		ServerName,
+		ServerPort)).get();
+}
+ServerIoController* ServerIoController::GetInstance() {
+	return InstanceObject.get();
+}
+
 ServerIoController::ServerIoController(
 	const char* ServerName,
 	const char* PortNumber
@@ -21,7 +48,7 @@ ServerIoController::ServerIoController(
 		"failes to retieve portinfo on \"%s\" with: %d\n",
 		PortNumber,
 		Result))
-		throw -1;
+		throw - 1;
 
 	SsLog("Preparing gameserver socket\n");
 	auto ServerInformationIterator = ServerInformation;
@@ -38,7 +65,7 @@ ServerIoController::ServerIoController(
 		WSAGetLastError())) {
 
 		freeaddrinfo(ServerInformation);
-		throw -2;
+		throw - 2;
 	}
 
 	SsLog("Switching to nonblocking mode on socket: [%p]",
@@ -55,7 +82,7 @@ ServerIoController::ServerIoController(
 		SsAssert(closesocket(GameServer),
 			"failed to close server socket, critical?: %d\n",
 			WSAGetLastError());
-		throw -3;
+		throw - 3;
 	}
 
 	SsLog("Queuing socket connect request in async mode");
@@ -68,7 +95,7 @@ ServerIoController::ServerIoController(
 		if (SsAssert(Response != WSAEWOULDBLOCK,
 			"failed to schedule conneciton request, cause unknown controller invlaid: %d",
 			Response))
-			throw -4;
+			throw - 4;
 	}
 }
 
@@ -78,7 +105,7 @@ ServerIoController::~ServerIoController() {
 
 long ServerIoController::ExecuteNetworkRequestHandlerWithCallback(
 	MajorFunction IoCompleteRequestQueue,
-	void*         UserContext
+	void* UserContext
 ) {
 	// Check if Multiplexer has attached to server 
 	if (!SocketAttached) {
@@ -143,11 +170,11 @@ long ServerIoController::ExecuteNetworkRequestHandlerWithCallback(
 					"Server socket failed to close properly: %d",
 					WSAGetLastError());
 				return IoRequestPacketIndirect::STATUS_REQUEST_ERROR;
-				
+
 			default:
 				SsLog("Ok shit went south here, uh dont know what to do here ngl,\n"
 					"time to die ig: %d",
-					SocketErrorCode); 
+					SocketErrorCode);
 				Result = IoRequestPacketIndirect::STATUS_REQUEST_ERROR;
 			}
 			break;
@@ -172,10 +199,10 @@ long ServerIoController::ExecuteNetworkRequestHandlerWithCallback(
 			break;
 
 		default: {
-			ShipSockControl* ShipPacket = (ShipSockControl*)PacketBuffer.get();
+			auto ShipPacket = (ShipSockControl*)PacketBuffer.get();
 			SsLog("Recived Gamenotification, IOCTL: &d",
 				ShipPacket->ControlCode);
-			
+
 			IoRequestPacketIndirect RequestDispatchPacket{
 				.IoControlCode = IoRequestPacketIndirect::INCOMING_PACKET,
 				.ControlIoPacketData = ShipPacket,

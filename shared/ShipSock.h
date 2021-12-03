@@ -147,6 +147,12 @@ inline const char* DefaultServerAddress = "127.0.0.1";
 #define PACKET_BUFFER_SIZE 0x2000
 #define SSOCKET_DISCONNECTED 0
 
+#define FIELD_WIDTH  10
+#define FIELD_HEIGHT 10
+#define NUMBER_OF_SHIPS
+
+
+
 enum ShipSocketStatus {
 	STATUS_SOCKETERROR = SOCKET_ERROR,
 	STATUS_SUCESSFUL = 0,

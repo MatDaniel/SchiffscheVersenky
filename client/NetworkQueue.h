@@ -16,12 +16,6 @@
 class ServerIoController 
 	: private SocketWrap {
 public:
-	ServerIoController(
-		const char* ServerName, // aka ipv4/6 address
-		const char* PortNumber  // the Port Number the server runs on
-	);
-	~ServerIoController();
-
 	struct IoRequestPacketIndirect {
 		enum IoServiceRoutineCtl {           // a control code specifiying the type of handling required
 			NO_COMMAND,                      // reserved for @Lima, dont use
@@ -50,17 +44,35 @@ public:
 		void*                    UserContext	 // A pointer to caller defined data thats forwarded to the callback in every call, could be the GameManager class or whatever
 	);
 
+	// Constructor/Desctructor Pseudosingleton bullshit
+	static ServerIoController* CreateSingletonOverride(
+		const char* ServerName,
+		const char* ServerPort
+	);
+	static ServerIoController* GetInstance();
+	~ServerIoController();
+	ServerIoController(const ServerIoController&) = delete;
+	ServerIoController& operator=(const ServerIoController&) = delete;
+
+
+
 	long ExecuteNetworkRequestHandlerWithCallback( // Probes requests and prepares IORP's for asynchronous networking
 												   // notifies the caller over a callback and provides completion routines
 		MajorFunction IoCompleteRequestQueue,      // yes this is your callback sir, treat it carefully, i wont do checks on this
 		void*         UserContext                  // some user provided polimorphic value forwarded to the handler routine
 	);
 
-
 private:
+	ServerIoController(
+		const char* ServerName, // aka ipv4/6 address
+		const char* PortNumber  // the Port Number the server runs on
+	);
 
 	SOCKET    GameServer = INVALID_SOCKET;
 	bool      SocketAttached = false;
 	addrinfo* ServerInformation = nullptr;
+
+	static std::unique_ptr<ServerIoController> InstanceObject;
 };
+inline std::unique_ptr<ServerIoController> ServerIoController::InstanceObject;
 

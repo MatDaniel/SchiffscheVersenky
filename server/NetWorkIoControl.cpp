@@ -1,5 +1,5 @@
 // This implements the ClientContoller that manages the clients and provides an IO bridge
-#include "NetworkIoControl.h"
+#include "ShipServer.h"
 
 ClientController::ClientController(
 	size_t InformationSize
@@ -15,6 +15,25 @@ bool ClientController::operator==(
 	return this == Rhs;
 }
 
+
+
+NetWorkIoControl* NetWorkIoControl::CreateSingletonOverride(
+	const char* ServerPort
+) {
+	SsLog("NetworkIoCtl Factory called, creating NetworkObject");
+
+	// Magic fuckery cause make_unique cannot normally access a private constructor
+	struct EnableMakeUnique : public NetWorkIoControl { 
+		inline EnableMakeUnique(
+			const char* ServerPort
+		) : NetWorkIoControl(
+			ServerPort) {}
+	};
+	return (InstanceObject = std::make_unique<EnableMakeUnique>(ServerPort)).get();
+}
+NetWorkIoControl* NetWorkIoControl::GetInstance() {
+	return InstanceObject.get();
+}
 
 
 NetWorkIoControl::NetWorkIoControl(
@@ -88,7 +107,8 @@ NetWorkIoControl::NetWorkIoControl(
 		.events = POLLIN });
 }
 NetWorkIoControl::~NetWorkIoControl() {
-	SsLog("Cleaning up internal server structures\n");
+	SsLog("Destructor of NetworkIoControl called!\n"
+		"Cleaning up internal server structures\n");
 	
 
 }

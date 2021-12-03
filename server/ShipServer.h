@@ -34,13 +34,10 @@ private:
 	int32_t  ClientInfoSize;
 };
 
-
+struct EnableMakeUnique;
 class NetWorkIoControl 
 	: private SocketWrap {
 public:
-
-
-
 	struct IoRequestPacket {
 		enum IoServiceRoutineCtl {           // a control code specifiying the type of handling required
 			NO_COMMAND,                      // reserved for @Lima, dont use
@@ -71,10 +68,16 @@ public:
 		void*             UserContext     // A pointer to caller defined data thats forwarded to the callback in every call, could be the GameManager class or whatever
 	);
 
-	NetWorkIoControl(
+	// Constructor/Desctructor Pseudosingleton bullshit
+	static NetWorkIoControl* CreateSingletonOverride(
 		const char* ServerPort
 	);
+	static NetWorkIoControl* GetInstance();	
 	~NetWorkIoControl();
+	NetWorkIoControl(const NetWorkIoControl&) = delete;
+	NetWorkIoControl& operator=(const NetWorkIoControl&) = delete;
+
+
 
 	SOCKET GetServerSocketHandle();
 	void AcceptIncomingConnection(
@@ -91,8 +94,55 @@ public:
 	);
 
 private:
+	NetWorkIoControl(
+		const char* ServerPort
+	);
 
 	SOCKET                        LocalServerSocket = INVALID_SOCKET;
 	std::vector<ClientController> ConnectedClients;
 	std::vector<WSAPOLLFD>        SocketDescriptorTable;
+ 
+	static std::unique_ptr<NetWorkIoControl> InstanceObject;
 };
+inline std::unique_ptr<NetWorkIoControl> NetWorkIoControl::InstanceObject;
+
+class GameManagmentController {
+public:
+	
+	
+	struct PlayerFiled {
+		enum CellState : uint8_t {
+			CELL_IS_EMPTY,
+			CELL_IS_IN_USE,
+			CELL_WAS_SHOT_EMPTY,
+			CELL_WAS_SHOT_IN_USE
+		} ** CellField;
+		struct {
+			uint8_t Xd,
+			        Yd;
+		} FieldDimensions;
+
+		struct ShipState {
+			ShipSockControl::ShipTypes ShipType;
+			uint8_t XCord,
+				    YCord;
+			uint8_t Rotation;
+			bool    Destroyed;
+		} * ShipStates;
+		struct ShipData {
+			uint8_t DestroyerCount;
+			uint8_t CruiserCount;
+			uint8_t SubmarineCount;
+			uint8_t BattleshipCount;
+			uint8_t CarrierCount;
+		};
+	};
+
+
+private:
+	
+
+
+};
+
+

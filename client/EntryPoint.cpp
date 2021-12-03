@@ -36,17 +36,13 @@ int main(
 	SsLog("Creating networkmanager\n");
 	long Result = 0;
 	try {
-
-		ServerIoController NetworkManager(
+		auto &Server = *ServerIoController::CreateSingletonOverride(
 			ServerAddress,
 			PortNumber);
-		SsAssert(Result < 0,
-			"failed to connect client socket to server for io operation with: %d\n",
-			Result);
-
+		
 		for (;;) {
 
-			auto ResponseOption = NetworkManager.ExecuteNetworkRequestHandlerWithCallback(
+			auto ResponseOption = Server.ExecuteNetworkRequestHandlerWithCallback(
 				NetworkDispatchTest,
 				nullptr
 			);

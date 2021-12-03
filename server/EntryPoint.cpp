@@ -1,4 +1,4 @@
-#include "NetworkIoControl.h"
+#include "ShipServer.h"
 
 void NetworkDispatchTest(
 	NetWorkIoControl&                  NetworkDevice,
@@ -10,8 +10,8 @@ void NetworkDispatchTest(
 		NetworkDevice.AcceptIncomingConnection(NetworkRequest);
 		break;
 
-	case NetWorkIoControl::IoRequestPacket::INCOMING_PACKET: 
-	{	
+	case NetWorkIoControl::IoRequestPacket::INCOMING_PACKET:
+	{
 		SsLog("Incoming packet requested on socket [%p]\n",
 			NetworkRequest.RequestingSocket);
 		auto PacketBuffer = std::make_unique<char[]>(PACKET_BUFFER_SIZE);
@@ -69,7 +69,7 @@ int main(
 	long Result = 0;
 	
 	try {
-		NetWorkIoControl ShipSocketObject(PortNumber);
+		auto& ShipSocketObject = *NetWorkIoControl::CreateSingletonOverride(PortNumber);
 		
 		SsLog("Starting to accept arbitrary requests and setting up worker threads for possible clients");
 		for (;;) {
