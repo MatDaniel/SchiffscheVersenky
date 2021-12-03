@@ -3,6 +3,7 @@
 
 #define FD_SETSIZE 1
 #include "ShipSock.h"
+#include <memory>
 
 #ifdef _MSC_VER
 #pragma warning(disable : 26812) // unscoped enum
@@ -17,8 +18,7 @@ class ServerIoController
 public:
 	ServerIoController(
 		const char* ServerName, // aka ipv4/6 address
-		const char* PortNumber, // the Port Number the server runs on
-		long*       OutResponse
+		const char* PortNumber  // the Port Number the server runs on
 	);
 	~ServerIoController();
 
@@ -51,16 +51,13 @@ public:
 	);
 
 	long ExecuteNetworkRequestHandlerWithCallback( // Probes requests and prepares IORP's for asynchronous networking
-																								 // notifies the caller over a callback and provides completion routines
-		MajorFunction IoCompleteRequestQueue,                                                    // yes this is your callback sir, treat it carefully, i wont do checks on this
-		void*         UserContext                                                                // some user provided polimorphic value forwarded to the handler routine
+												   // notifies the caller over a callback and provides completion routines
+		MajorFunction IoCompleteRequestQueue,      // yes this is your callback sir, treat it carefully, i wont do checks on this
+		void*         UserContext                  // some user provided polimorphic value forwarded to the handler routine
 	);
 
 
 private:
-	long QueueConnectAttemptTimepoint();
-	void ConnectSuccessSwitchToMode();
-	long QueryServerIsConnected();
 
 	SOCKET    GameServer = INVALID_SOCKET;
 	bool      SocketAttached = false;

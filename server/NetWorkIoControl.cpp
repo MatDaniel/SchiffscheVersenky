@@ -18,12 +18,10 @@ bool ClientController::operator==(
 
 
 NetWorkIoControl::NetWorkIoControl(
-	const char* PortNumber,
-	long*       OutResponse
+	const char* PortNumber
 ) {
 	SsLog("Preparing internal server structures for async IO operation\n"
 		"Retrieving portnumber information for localhost\n");
-	*OutResponse = -1;
 	addrinfo* ServerInformation,
 		AddressHints{};
 	AddressHints.ai_flags = AI_PASSIVE;
@@ -39,7 +37,7 @@ NetWorkIoControl::NetWorkIoControl(
 		"failes to retieve portinfo on \"%s\" with: %d\n",
 		PortNumber,
 		Result))
-		return;
+		throw -1;
 
 	SsLog("Creating gamesever and binding ports\n");
 	auto ServerInformationIterator = ServerInformation;
@@ -50,11 +48,13 @@ NetWorkIoControl::NetWorkIoControl(
 			ServerInformationIterator->ai_protocol);
 	} while (LocalServerSocket == INVALID_SOCKET &&
 		(ServerInformationIterator = ServerInformationIterator->ai_next));
-	*OutResponse = -2;
 	if (SsAssert(LocalServerSocket == INVALID_SOCKET,
 		"failed to create socked with: %d\n",
-		WSAGetLastError()))
-		goto Cleanup;
+		WSAGetLastError())) {
+
+		freeaddrinfo(ServerInformation);
+		throw -2;
+	}
 
 	Result = bind(
 		LocalServerSocket,
@@ -62,38 +62,30 @@ NetWorkIoControl::NetWorkIoControl(
 		ServerInformationIterator->ai_addrlen);
 	freeaddrinfo(ServerInformation);
 	ServerInformation = nullptr;
-	*OutResponse = -3;
 	if (SsAssert(Result,
 		"failed to bind socket to port \"%s\", with: %d\n",
 		PortNumber,
-		WSAGetLastError()))
-		goto Cleanup;
+		WSAGetLastError())) {
 
+		closesocket(LocalServerSocket);
+		throw -3;
+	}
+		
 	SsLog("Starting to listen to incoming requests, passively\n");
 	Result = listen(
 		LocalServerSocket,
 		SOMAXCONN);
-	*OutResponse = -4;
 	if (SsAssert(Result,
 		"failed to initilize listening queue with: %d\n",
-		WSAGetLastError()))
-		goto Cleanup;
+		WSAGetLastError())) {
 
+		closesocket(LocalServerSocket);
+		throw -4;
+	}
+		
 	SocketDescriptorTable.emplace_back(WSAPOLLFD{ 
 		.fd = LocalServerSocket,
 		.events = POLLIN });
-	*OutResponse = 0;
-	return;
-
-Cleanup:
-	if (ServerInformation)
-		freeaddrinfo(ServerInformation),
-		ServerInformation = nullptr;
-	if (LocalServerSocket)
-		SsAssert(closesocket(LocalServerSocket),
-			"failed to close server socket, critical?: %d\n",
-			WSAGetLastError());
-	LocalServerSocket = INVALID_SOCKET;
 }
 NetWorkIoControl::~NetWorkIoControl() {
 	SsLog("Cleaning up internal server structures\n");
@@ -160,10 +152,9 @@ long NetWorkIoControl::PollNetworkConnectionsAndDispatchCallbacks(
 						Associate = &Client; break;
 					}
 
-				return IoRequestPacket{
-						.IoControlCode = IoControlCode,
-						.OptionalClient = Associate,
-						.IoRequestStatus = IoRequestPacket::STATUS_REQUEST_NOT_HANDLED };
+				return { .IoControlCode = IoControlCode,
+						 .OptionalClient = Associate,
+						 .IoRequestStatus = IoRequestPacket::STATUS_REQUEST_NOT_HANDLED };
 		};
 
 		auto ReturnEvent = SocketDescriptorTable[i].revents;
@@ -219,6 +210,8 @@ long NetWorkIoControl::PollNetworkConnectionsAndDispatchCallbacks(
 			auto NetworkRequest = BuildNetworkRequest(
 				SocketDescriptorTable[i].fd,
 				i ? IoRequestPacket::INCOMING_PACKET : IoRequestPacket::INCOMING_CONNECTION);
+			if (i == 0)
+				NetworkRequest.RequestingSocket = LocalServerSocket;
 			IoCompleteRequestRoutine(
 				*this,
 				NetworkRequest,

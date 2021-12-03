@@ -24,8 +24,6 @@ int main(
 	int         argc,
 	const char* argv[]
 ) {
-
-	
 	auto ServerAddress = DefaultServerAddress;
 	auto PortNumber = DefaultPortNumber;
 	if (argc >= 2)
@@ -37,30 +35,44 @@ int main(
 
 	SsLog("Creating networkmanager\n");
 	long Result = 0;
-	ServerIoController NetworkManager(
-		ServerAddress,
-		PortNumber,
-		&Result);
-	SsAssert(Result < 0,
-		"failed to connect client socket to server for io operation with: %d\n",
-		Result);
+	try {
 
-	for (;;) {
-	
-		auto ResponseOption = NetworkManager.ExecuteNetworkRequestHandlerWithCallback(
-			NetworkDispatchTest,
-			nullptr
-		);
+		ServerIoController NetworkManager(
+			ServerAddress,
+			PortNumber);
+		SsAssert(Result < 0,
+			"failed to connect client socket to server for io operation with: %d\n",
+			Result);
 
-		if (ResponseOption < 0)
-			break;
+		for (;;) {
 
-		Sleep(1000);
+			auto ResponseOption = NetworkManager.ExecuteNetworkRequestHandlerWithCallback(
+				NetworkDispatchTest,
+				nullptr
+			);
+
+			if (ResponseOption < 0)
+				break;
+
+			Sleep(1000);
+		}
+	}
+	catch (const int& ExceptionCode) {
+
+		SsAssert(1,
+			"critical failure, invalid socket escaped constructor: %d\n",
+			ExceptionCode);
+		return EXIT_FAILURE;
+	}
+	catch (const std::exception& Exception) {
+		SsAssert(1,
+			Exception.what());
+		return EXIT_FAILURE;
 	}
 
 	SsLog("exiting handler loop");
-	
 
 
-    return Game::run(Scene::getter<MenuScene>());
+
+    // return Game::run(Scene::getter<MenuScene>());
 }

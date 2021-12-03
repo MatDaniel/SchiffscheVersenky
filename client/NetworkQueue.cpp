@@ -3,8 +3,7 @@
 
 ServerIoController::ServerIoController(
 	const char* ServerName,
-	const char* PortNumber,
-	long*       OutResponse
+	const char* PortNumber
 ) {
 	SsLog("Preparing internal server structures for async IO operation\n"
 		"Retrieving remote server information\n");
@@ -18,11 +17,11 @@ ServerIoController::ServerIoController(
 		PortNumber,
 		&AddressHints,
 		&ServerInformation);
-	*OutResponse = -1;
 	if (SsAssert(Result,
 		"failes to retieve portinfo on \"%s\" with: %d\n",
 		PortNumber,
-		Result)) return;
+		Result))
+		throw -1;
 
 	SsLog("Preparing gameserver socket\n");
 	auto ServerInformationIterator = ServerInformation;
@@ -38,9 +37,8 @@ ServerIoController::ServerIoController(
 		"failed to create socked with: %d\n",
 		WSAGetLastError())) {
 
-		*OutResponse = -2;
 		freeaddrinfo(ServerInformation);
-		ServerInformation = nullptr;
+		throw -2;
 	}
 
 	SsLog("Switching to nonblocking mode on socket: [%p]",
@@ -53,22 +51,15 @@ ServerIoController::ServerIoController(
 		"failed to switch socket into non blocking mode: %d",
 		WSAGetLastError())) {
 
-		*OutResponse = -3;
 		freeaddrinfo(ServerInformation);
-		ServerInformation = nullptr;
 		SsAssert(closesocket(GameServer),
 			"failed to close server socket, critical?: %d\n",
 			WSAGetLastError());
-		GameServer = INVALID_SOCKET;
+		throw -3;
 	}
 
-	*OutResponse = QueueConnectAttemptTimepoint();
-}
-
-long ServerIoController::QueueConnectAttemptTimepoint() {
-	
-	SsLog("Queuing socket connect rquest in async mode");
-	auto Result = connect(
+	SsLog("Queuing socket connect request in async mode");
+	Result = connect(
 		GameServer,
 		ServerInformation->ai_addr,
 		ServerInformation->ai_addrlen);
@@ -77,48 +68,7 @@ long ServerIoController::QueueConnectAttemptTimepoint() {
 		if (SsAssert(Response != WSAEWOULDBLOCK,
 			"failed to schedule conneciton request, cause unknown controller invlaid: %d",
 			Response))
-			return -4;
-	}
-
-	return 0;
-}
-void ServerIoController::ConnectSuccessSwitchToMode() {
-
-	SsLog("Server connected on socket, switching controller IoMode");
-	freeaddrinfo(ServerInformation);
-	ServerInformation = nullptr;
-	SocketAttached = true;
-}
-long ServerIoController::QueryServerIsConnected() {
-	
-	SsLog("Querying connecting socket request");
-	fd_set WriteSet; FD_ZERO(&WriteSet);
-	FD_SET(GameServer, &WriteSet);
-	fd_set ExceptionSet; FD_ZERO(&ExceptionSet);
-	FD_SET(GameServer, &ExceptionSet);
-	timeval Timeout{};
-	auto Result = select(0, nullptr,
-		&WriteSet,
-		&ExceptionSet,
-		&Timeout);
-	switch (Result) {
-	case SOCKET_ERROR:
-		SsLog("socket query failed, cause: %d",
-			WSAGetLastError());
-		return SOCKET_ERROR;
-
-	case 0:
-		SsLog("Connect has not finished work yet");
-		return STATUS_WORK_PENDING;
-
-	case 1:
-		if (WriteSet.fd_count)
-			return SsLog("Client successfully connected to gameserver"),
-				ConnectSuccessSwitchToMode(),
-				STATUS_SUCESSFUL;
-		if (ExceptionSet.fd_count)
-			return SsLog("Client failed to connect to socket"),
-				STATUS_FAILED_TO_CONNECT;
+			throw -4;
 	}
 }
 
@@ -130,44 +80,102 @@ long ServerIoController::ExecuteNetworkRequestHandlerWithCallback(
 	MajorFunction IoCompleteRequestQueue,
 	void*         UserContext
 ) {
+	// Check if Multiplexer has attached to server 
 	if (!SocketAttached) {
 
-		// Mega Brainfart retarded design
-		auto Result = QueryServerIsConnected();
+		SsLog("Querying connecting socket request");
+		fd_set WriteSet;
+		FD_ZERO(&WriteSet);
+		FD_SET(GameServer, &WriteSet);
+		fd_set ExceptionSet;
+		FD_ZERO(&ExceptionSet);
+		FD_SET(GameServer, &ExceptionSet);
+		timeval Timeout{};
+		auto Result = select(0, nullptr,
+			&WriteSet,
+			&ExceptionSet,
+			&Timeout);
+
 		switch (Result) {
-		case STATUS_WORK_PENDING:
-			return 0;
-		case STATUS_SUCESSFUL:
-			return 1;
-		default:
-			return -1;
+		case SOCKET_ERROR:
+			SsLog("socket query failed, cause: %d",
+				WSAGetLastError());
+			return SOCKET_ERROR;
+
+		case 0:
+			SsLog("Connect has not finished work yet");
+			return STATUS_WORK_PENDING;
+
+		case 1:
+			if (WriteSet.fd_count) {
+
+				SsLog("Server connected on socket, switching controller IoMode");
+				freeaddrinfo(ServerInformation);
+				SocketAttached = true;
+				break;
+			}
+			if (ExceptionSet.fd_count)
+				return SsLog("Client failed to connect to socket"),
+				STATUS_FAILED_TO_CONNECT;
 		}
 	}
 
-	SsLog("Preparing for incoming messages or return\n");
-	auto ProcessHeap = GetProcessHeap();
-	auto PacketBuffer = (char*)HeapAlloc(ProcessHeap,
-		0,
-		PACKET_BUFFER_SIZE);
-	if (SsAssert(!PacketBuffer,
-		"Heapmanager failed to cretae packet buffer, critical: %d",
-		GetLastError()))
-		return -1;
-
-	// check if socket has input data to recieve
+	SsLog("Checking for input and handling messages\n");
 	long Result = 0;
-	
+	auto PacketBuffer = std::make_unique<char[]>(PACKET_BUFFER_SIZE);
 	do {
 		Result = recv(GameServer,
-			PacketBuffer,
+			PacketBuffer.get(),
 			PACKET_BUFFER_SIZE,
 			0);
 
-		if (Result > 0) {
+		switch (Result) {
+		case SOCKET_ERROR:
+			switch (auto SocketErrorCode = WSAGetLastError()) {
+			case WSAEWOULDBLOCK:
+				SsLog("No (more) request to handle, we can happily exit now :)\n");
+				Result = 0;
+				break;
 
-			ShipSockControl* ShipPacket = (ShipSockControl*)PacketBuffer;
+			case WSAECONNRESET:
+				SsLog("Connection reset, server aborted, closing socket");
+				SsAssert(closesocket(GameServer),
+					"Server socket failed to close properly: %d",
+					WSAGetLastError());
+				return IoRequestPacketIndirect::STATUS_REQUEST_ERROR;
+				
+			default:
+				SsLog("Ok shit went south here, uh dont know what to do here ngl,\n"
+					"time to die ig: %d",
+					SocketErrorCode); 
+				Result = IoRequestPacketIndirect::STATUS_REQUEST_ERROR;
+			}
+			break;
+
+		case 0: {
+			SsLog("Server disconnected from client by remote\n");
+
+			IoRequestPacketIndirect RequestDispatchPacket{
+				.IoControlCode = IoRequestPacketIndirect::SOCKET_DISCONNECTED,
+				.IoRequestStatus = IoRequestPacketIndirect::STATUS_REQUEST_NOT_HANDLED
+			};
+			IoCompleteRequestQueue(this,
+				&RequestDispatchPacket,
+				UserContext);
+			if (SsAssert(RequestDispatchPacket.IoRequestStatus < 0,
+				"Callback refused or did not handle server disconnect properly,\n"
+				"tHE FUck are you doing @Daniel")) {
+
+				Result = RequestDispatchPacket.IoRequestStatus;
+			}
+		}
+			break;
+
+		default: {
+			ShipSockControl* ShipPacket = (ShipSockControl*)PacketBuffer.get();
 			SsLog("Recived Gamenotification, IOCTL: &d",
 				ShipPacket->ControlCode);
+			
 			IoRequestPacketIndirect RequestDispatchPacket{
 				.IoControlCode = IoRequestPacketIndirect::INCOMING_PACKET,
 				.ControlIoPacketData = ShipPacket,
@@ -179,52 +187,12 @@ long ServerIoController::ExecuteNetworkRequestHandlerWithCallback(
 			if (SsAssert(RequestDispatchPacket.IoRequestStatus < 0,
 				"Callback failed to handle request")) {
 
-				Result = -2; break;
+				Result = RequestDispatchPacket.IoRequestStatus;
 			}
-		} else {
-
-			if (Result == SSOCKET_DISCONNECTED) {
-	
-				SsLog("Server disconnected from socket,\n"
-					"this shouldnt normally happen but its gracefully so it has to be treated specially\n");
-
-				IoRequestPacketIndirect RequestDispatchPacket{
-					.IoControlCode = IoRequestPacketIndirect::SOCKET_DISCONNECTED,
-					.IoRequestStatus = IoRequestPacketIndirect::STATUS_REQUEST_NOT_HANDLED
-				};
-				IoCompleteRequestQueue(this,
-					&RequestDispatchPacket,
-					UserContext);
-				if (SsAssert(RequestDispatchPacket.IoRequestStatus != IoRequestPacketIndirect::STATUS_REQUEST_COMPLETED,
-					"Callback refused or did not handle server disconnect properly,\n"
-					"tHE FUck are you doing @Daniel")) {
-
-					Result = -3; break;
-				}
-
-				Result = 2;
-			} else 
-				switch (WSAGetLastError()) {
-
-				case WSAEWOULDBLOCK:
-					SsLog("No (more) request to handle, we can happily exit now :)\n");
-					Result = 0;
-					break;
-
-				default:
-					SsLog("Ok shit went south here, uh dont know what to do here ngl,\n"
-						"time to die ig: %d",
-						WSAGetLastError());
-					Result = -4;
-					break;
-				}
+		}
 		}
 	} while (Result > 0);
 
-Cleanup:
-	HeapFree(ProcessHeap,
-		0,
-		PacketBuffer);
 	return Result;
 }
 

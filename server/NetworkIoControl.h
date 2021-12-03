@@ -10,6 +10,7 @@
 #endif
 
 #include "ShipSock.h"
+#include <memory>
 #include <vector>
 
 
@@ -71,8 +72,7 @@ public:
 	);
 
 	NetWorkIoControl(
-		const char* ServerPort,
-		long*       OutResponse
+		const char* ServerPort
 	);
 	~NetWorkIoControl();
 
