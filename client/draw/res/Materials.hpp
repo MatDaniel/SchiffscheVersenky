@@ -26,6 +26,8 @@ namespace Materials
     extern const InstanceMap map;
 
     extern Material green;
+    extern Material water;
+    extern Material border;
 
 }
 

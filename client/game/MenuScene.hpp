@@ -7,6 +7,8 @@ class MenuScene final : public Scene
 {
 public:
 
+    MenuScene();
+
     void update() override;
 
 private:

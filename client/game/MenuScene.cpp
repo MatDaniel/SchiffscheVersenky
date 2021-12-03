@@ -12,6 +12,28 @@
 #include "draw/SceneRenderer.hpp"
 #include "FieldSetupScene.hpp"
 
+MenuScene::MenuScene()
+{
+
+    auto& ren = *Game::renderer();
+    auto& info = ren.info();
+    
+    // Set camera orientation
+    info.camera = {
+        .position = { -0.3F, -0.3F, 1.0F },
+        .direction = { 6.0F, 6.0F, -17.8F },
+        .up = { 0.0F, 1.0F, 0.0F }
+    };
+    
+    // Set projection
+    info.projection = PerspectiveProjection();
+
+    // Upload data to the scene ubo
+    ren.uploadCamera();
+    ren.uploadProjection();
+    
+}
+
 void MenuScene::update()
 {
 
@@ -85,10 +107,6 @@ void MenuScene::update()
 
     // Render background scene
     //-------------------------
-   
-    Game::renderer()->info().camera.direction = { -0.3F, -0.3F, 1.0F };
-    Game::renderer()->info().camera.position = { 6.0F, 6.0F, -17.8F };
-    Game::renderer()->uploadCamera();
 
     for (int x = -10; x <= 10; x++)
         for (int y = -10; y <= 10; y++)

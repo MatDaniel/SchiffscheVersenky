@@ -5,8 +5,6 @@ add_executable(client
         ${CMAKE_CURRENT_LIST_DIR}/draw/Game.cpp
         ${CMAKE_CURRENT_LIST_DIR}/draw/Scene.cpp
         ${CMAKE_CURRENT_LIST_DIR}/draw/SceneRenderer.cpp
-        ${CMAKE_CURRENT_LIST_DIR}/draw/scenes/MenuScene.cpp
-        ${CMAKE_CURRENT_LIST_DIR}/draw/scenes/FieldSetupScene.cpp
         ${CMAKE_CURRENT_LIST_DIR}/draw/res/Resource.cpp
         ${CMAKE_CURRENT_LIST_DIR}/draw/res/ShaderStages.cpp
         ${CMAKE_CURRENT_LIST_DIR}/draw/res/ShaderPipelines.cpp
@@ -14,7 +12,10 @@ add_executable(client
         ${CMAKE_CURRENT_LIST_DIR}/draw/res/Models.cpp
         ${CMAKE_CURRENT_LIST_DIR}/draw/res/Materials.cpp
         ${CMAKE_CURRENT_LIST_DIR}/util/imemstream.cpp
-        ${CMAKE_CURRENT_LIST_DIR}/draw/gobj/Projection.cpp)
+        ${CMAKE_CURRENT_LIST_DIR}/draw/gobj/Projection.cpp
+        ${CMAKE_CURRENT_LIST_DIR}/game/MenuScene.cpp
+        ${CMAKE_CURRENT_LIST_DIR}/game/PlayScene.hpp
+        ${CMAKE_CURRENT_LIST_DIR}/game/FieldSetupScene.cpp)
 target_include_directories(client
         PRIVATE ${CMAKE_CURRENT_LIST_DIR})
 target_link_libraries(client

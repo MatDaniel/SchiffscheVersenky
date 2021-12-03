@@ -1,7 +1,7 @@
 #include "NetworkQueue.h"
 #include "draw/Game.hpp"
-#include "draw/scenes/MenuScene.hpp"
-
+#include "game/FieldSetupScene.hpp"
+#include "game/MenuScene.hpp"
 
 void NetworkDispatchTest(
 	ServerIoController* NetworkDevice,

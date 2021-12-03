@@ -62,9 +62,9 @@ public:
     // Getters
     //---------
 
-    inline GLuint vao(size_t index) const noexcept
+    inline GLuint vao() const noexcept
     {
-        return m_vao[index];
+        return m_vao;
     }
 
     inline GLuint vbo() const noexcept
@@ -87,6 +87,19 @@ public:
         return m_all;
     }
 
+    inline Part find(const std::string& name) const noexcept
+    {
+
+        // Return first part with the name
+        for (auto& part : m_parts)
+            if (part.name == name)
+                return part;
+
+        return { }; // or return an null model part,
+                    // it won't draw any trianagles.
+
+    }
+
 private:
 
     // Properties
@@ -94,7 +107,7 @@ private:
 
     // OpenGL Handles
 
-    GLuint m_vao[BUFFERING_AMOUNT];
+    GLuint m_vao;
     union {
         struct {
             GLuint m_vbo;
@@ -120,6 +133,7 @@ SHIV_FNV_HASH(Model::IndexInfo)
 namespace Models
 {
 
+    extern Model water;
     extern Model teapot;
 
 }

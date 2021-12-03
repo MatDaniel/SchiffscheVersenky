@@ -33,21 +33,17 @@ namespace
 
     inline GLbitfield toBit(GLenum type)
     {
-
         switch (type)
         {
-            case GL_VERTEX_SHADER:
-                return GL_VERTEX_SHADER_BIT;
-            case  GL_TESS_CONTROL_SHADER:
-                return  GL_TESS_CONTROL_SHADER_BIT;
-            case GL_TESS_EVALUATION_SHADER:
-                return GL_TESS_EVALUATION_SHADER_BIT;
-            case  GL_GEOMETRY_SHADER:
-                return  GL_GEOMETRY_SHADER_BIT;
-            case  GL_FRAGMENT_SHADER:
-                return  GL_FRAGMENT_SHADER_BIT;
-            case  GL_COMPUTE_SHADER:
-                return  GL_COMPUTE_SHADER_BIT;
+#define SHIV_SHADERBIT(Type) \
+    case Type: return Type##_BIT
+            SHIV_SHADERBIT(GL_VERTEX_SHADER);
+            SHIV_SHADERBIT(GL_FRAGMENT_SHADER);
+            SHIV_SHADERBIT(GL_GEOMETRY_SHADER);
+            SHIV_SHADERBIT(GL_TESS_CONTROL_SHADER);
+            SHIV_SHADERBIT(GL_TESS_EVALUATION_SHADER);  
+            SHIV_SHADERBIT(GL_COMPUTE_SHADER);
+#undef SHIV_SHADERBIT
             default:
                 std::cerr << "[ShipRenderer] Unknown shader type of value " << type << "!" << std::endl; 
                 return 0;

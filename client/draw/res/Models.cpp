@@ -107,7 +107,7 @@ Model::Model(int rid)
     // in case the model loading fails, we have allocated
     // valid buffers in opengl, so that we won't conflict
     // with any other opengl buffers, when using them.
-    glCreateVertexArrays(BUFFERING_AMOUNT, m_vao);
+    glCreateVertexArrays(1, &m_vao);
     glCreateBuffers(2, m_buffers);
 
     // Parse embedded resource mesh file with tinyobj_loader.
@@ -284,44 +284,39 @@ Model::Model(int rid)
     // describe the content in the buffer for opengl.
     //
 
-    for (size_t i = 0; i < BUFFERING_AMOUNT; i++)
-    {
+    // Constants
+    constexpr GLuint POSITION_ATTRIBINDEX = ShaderPipeline::POSITION_ATTRIBINDEX;
+    constexpr GLuint NORMAL_ATTRIBINDEX = ShaderPipeline::NORMAL_ATTRIBINDEX;
+    constexpr GLuint TEXCOORDS_ATTRIBINDEX = ShaderPipeline::TEXCOORDS_ATTRIBINDEX;
 
-        // Constants
-        constexpr GLuint POSITION_ATTRIBINDEX = ShaderPipeline::POSITION_ATTRIBINDEX;
-        constexpr GLuint NORMAL_ATTRIBINDEX = ShaderPipeline::NORMAL_ATTRIBINDEX;
-        constexpr GLuint TEXCOORDS_ATTRIBINDEX = ShaderPipeline::TEXCOORDS_ATTRIBINDEX;
+    // Upload the vertices and indices to the gpu buffers.
+    glNamedBufferData(m_vbo, sizeof(Vertex) * vertices.size(), vertices.data(), GL_STATIC_DRAW);
+    glNamedBufferData(m_ebo, sizeof(uint32_t) * total_indices, indices, GL_STATIC_DRAW);
 
-        // Upload the vertices and indices to the gpu buffers.
-        glNamedBufferData(m_vbo, sizeof(Vertex) * vertices.size(), vertices.data(), GL_STATIC_DRAW);
-        glNamedBufferData(m_ebo, sizeof(uint32_t) * total_indices, indices, GL_STATIC_DRAW);
+    // Describe the vertex buffer attributes
+    glVertexArrayAttribFormat(m_vao, POSITION_ATTRIBINDEX, sizeof(Vertex::position) / sizeof(float), GL_FLOAT, GL_FALSE, offsetof(Vertex, position));
+    glVertexArrayAttribFormat(m_vao, NORMAL_ATTRIBINDEX, sizeof(Vertex::normal) / sizeof(float), GL_FLOAT, GL_FALSE, offsetof(Vertex, normal));
+    glVertexArrayAttribFormat(m_vao, TEXCOORDS_ATTRIBINDEX, sizeof(Vertex::texCoords) / sizeof(float), GL_FLOAT, GL_FALSE, offsetof(Vertex, texCoords));
 
-        // Describe the vertex buffer attributes
-        glVertexArrayAttribFormat(m_vao[i], POSITION_ATTRIBINDEX, sizeof(Vertex::position) / sizeof(float), GL_FLOAT, GL_FALSE, offsetof(Vertex, position));
-        glVertexArrayAttribFormat(m_vao[i], NORMAL_ATTRIBINDEX, sizeof(Vertex::normal) / sizeof(float), GL_FLOAT, GL_FALSE, offsetof(Vertex, normal));
-        glVertexArrayAttribFormat(m_vao[i], TEXCOORDS_ATTRIBINDEX, sizeof(Vertex::texCoords) / sizeof(float), GL_FLOAT, GL_FALSE, offsetof(Vertex, texCoords));
+    // Bind attributes to bindings
+    glVertexArrayAttribBinding(m_vao, POSITION_ATTRIBINDEX, 0);
+    glVertexArrayAttribBinding(m_vao, NORMAL_ATTRIBINDEX, 0);
+    glVertexArrayAttribBinding(m_vao, TEXCOORDS_ATTRIBINDEX, 0);
 
-        // Bind attributes to bindings
-        glVertexArrayAttribBinding(m_vao[i], POSITION_ATTRIBINDEX, 0);
-        glVertexArrayAttribBinding(m_vao[i], NORMAL_ATTRIBINDEX, 0);
-        glVertexArrayAttribBinding(m_vao[i], TEXCOORDS_ATTRIBINDEX, 0);
+    // Enable vertex attributes
+    glEnableVertexArrayAttrib(m_vao, POSITION_ATTRIBINDEX);
+    glEnableVertexArrayAttrib(m_vao, NORMAL_ATTRIBINDEX);
+    glEnableVertexArrayAttrib(m_vao, TEXCOORDS_ATTRIBINDEX);
 
-        // Enable vertex attributes
-        glEnableVertexArrayAttrib(m_vao[i], POSITION_ATTRIBINDEX);
-        glEnableVertexArrayAttrib(m_vao[i], NORMAL_ATTRIBINDEX);
-        glEnableVertexArrayAttrib(m_vao[i], TEXCOORDS_ATTRIBINDEX);
+    // Bind the buffers to the vertex array object.
+    glVertexArrayVertexBuffer(m_vao, 0, m_vbo, 0, sizeof(Vertex));
+    glVertexArrayElementBuffer(m_vao, m_ebo);
 
-        // Bind the buffers to the vertex array object.
-        glVertexArrayVertexBuffer(m_vao[i], 0, m_vbo, 0, sizeof(Vertex));
-        glVertexArrayElementBuffer(m_vao[i], m_ebo);
+    // Setup divisor per vertex
+    glVertexArrayBindingDivisor(m_vao, 0, 0);
 
-        // Setup divisor per vertex
-        glVertexArrayBindingDivisor(m_vao[i], 0, 0);
-
-        // Init vao for instancing
-        Game::renderer()->initVAOInstancing(i, m_vao[i]);
-
-    }
+    // Init vao for instancing
+    Game::renderer()->prepareVAOInst(m_vao);
 
     // Cleanup
     delete[] indices;
@@ -329,15 +324,13 @@ Model::Model(int rid)
 }
 
 Model::Model(Model &&other) noexcept
-    : m_vbo(other.m_vbo)
+    : m_vao(other.m_vao)
+    , m_vbo(other.m_vbo)
     , m_ebo(other.m_ebo)
     , m_all(std::move(other.m_all))
     , m_parts(std::move(other.m_parts))
 {
-    for (size_t i = 0; i < BUFFERING_AMOUNT; i++)
-        m_vao[i] = other.m_vao[i];
-    for (size_t i = 0; i < BUFFERING_AMOUNT; i++)
-        other.m_vao[i] = 0;
+    other.m_vao = 0;
     other.m_vbo = 0;
     other.m_ebo = 0;
 }
@@ -346,16 +339,14 @@ Model& Model::operator=(Model &&other) noexcept
 {
 
     // Copy values
-    for (size_t i = 0; i < BUFFERING_AMOUNT; i++)
-        m_vao[i] = other.m_vao[i];
+    m_vao = other.m_vao;
     m_vbo = other.m_vbo;
     m_ebo = other.m_ebo;
     m_all = std::move(other.m_all);
     m_parts = std::move(other.m_parts);
 
     // Invalidate other mesh
-    for (size_t i = 0; i < BUFFERING_AMOUNT; i++)
-        other.m_vao[i] = 0;
+    other.m_vao = 0;
     other.m_vbo = 0;
     other.m_ebo = 0;
 
@@ -366,7 +357,7 @@ Model& Model::operator=(Model &&other) noexcept
 
 Model::~Model()
 {
-    glDeleteVertexArrays(BUFFERING_AMOUNT, m_vao);
+    glDeleteVertexArrays(1, &m_vao);
     glDeleteBuffers(2, m_buffers);
 }
 
@@ -375,4 +366,5 @@ Model::~Model()
 // INSTANTIATIONS //
 //----------------//
 
+Model Models::water;
 Model Models::teapot;

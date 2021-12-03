@@ -4,42 +4,20 @@
 #include <variant>
 
 #include <glad/glad.h>
+#include <glm/glm.hpp>
 #include <glm/mat4x4.hpp>
 #include <glm/vec3.hpp>
 
-struct AbstractProjection
+struct PerspectiveProjection final
 {
-
-    // Utility
-    //---------
-
-    virtual glm::mat4 calc(const glm::vec2 &windowSize) const = 0;
-
+    glm::mat4 calc(glm::vec2 windowSize) const;
+    float fov = glm::radians(90.0F);
 };
 
-struct PerspectiveProjection final : public AbstractProjection
+struct OrthoProjection final
 {
-
-    // Utility
-    //---------
-
-    virtual glm::mat4 calc(const glm::vec2 &windowSize) const override;
-
-    // Properties
-    //------------
-
-    float fov;
-
-};
-
-struct OrthoProjection final : public AbstractProjection
-{
-
-    // Utility
-    //---------
-
-    virtual glm::mat4 calc(const glm::vec2 &windowSize) const override;
-
+    glm::mat4 calc(glm::vec2 windowSize) const;
+    float height = 5.0F;
 };
 
 typedef std::variant<PerspectiveProjection, OrthoProjection> Projection;

@@ -56,7 +56,8 @@ static void framebufferSizeCallback(GLFWwindow* window, int width, int height)
     glViewport(0, 0, width, height);
 
     // Update projection
-    s_renderer->uploadProjection();
+    if (width != 0 && height != 0)
+        s_renderer->uploadProjection();
 
 }
 
@@ -175,6 +176,7 @@ static void initResources()
     }};
 
     // Models
+    Models::water = { IDR_MESH_WATER };
     Models::teapot = { IDR_MESH_TEAPOT };
 
 }

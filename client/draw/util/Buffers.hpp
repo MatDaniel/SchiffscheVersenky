@@ -27,7 +27,7 @@ public:
 		return m_id;
 	}
 
-	inline T* ptr() const noexcept
+	inline auto ptr() const noexcept
 	{
 		return m_ptr;
 	}
@@ -35,7 +35,7 @@ public:
 protected:
 
 	GLuint m_id { 0 };
-	T* m_ptr { nullptr };
+	std::remove_pointer_t<T>* m_ptr { nullptr };
 
 };
 
@@ -80,18 +80,14 @@ public:
 	// Constants
 	static constexpr GLenum MAPPING_FLAGS = MappedBufferConstants::FLAGS;
 
-	inline DynamicMappedBuffer()
-	{
-		glCreateBuffers(1, &this->m_id);
-	}
-
 	inline void resize(GLsizeiptr count) noexcept
 	{
 		if (m_count < count)
 		{
-			if (this->m_ptr) glUnmapNamedBuffer(this->m_id);
+			glDeleteBuffers(1, &this->m_id);
+			glCreateBuffers(1, &this->m_id);
 			glNamedBufferStorage(this->m_id, sizeof(T) * count, nullptr, MAPPING_FLAGS);
-			this->m_ptr = (T**)glMapNamedBufferRange(this->m_id, 0, sizeof(T) * count, MAPPING_FLAGS);
+			this->m_ptr = (T*)glMapNamedBufferRange(this->m_id, 0, sizeof(T) * count, MAPPING_FLAGS);
 			m_count = count;
 		}
 	}

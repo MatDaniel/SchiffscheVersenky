@@ -7,6 +7,8 @@ class FieldSetupScene final : public Scene
 {
 public:
 
+    FieldSetupScene();
+
     void update() override;
 
 };

@@ -11,16 +11,10 @@ constexpr GLenum flags = GL_MAP_WRITE_BIT | GL_MAP_PERSISTENT_BIT | GL_MAP_COHER
 SceneRenderer::SceneRenderer()
     : m_info()
 {
-    // Upload defaults to scene ubo
-    uploadCamera();
-    auto defProj = PerspectiveProjection();
-    defProj.fov = 90.0F;
-    m_info.projection = defProj;
-    uploadProjection();
-    uploadSun();
+    uploadSun(); // Upload default sun location to the scene ubo
 }
 
-void SceneRenderer::initVAOInstancing(size_t buf, GLuint vao)
+void SceneRenderer::prepareVAOInst(GLuint vao)
 {
 
     // Constants
@@ -61,17 +55,22 @@ void SceneRenderer::uploadCamera() noexcept
 
 void SceneRenderer::uploadProjection() noexcept
 {
+
+    constexpr float NEAR_PLANE = 0.1F;
+    constexpr float FAR_PLANE = 1000.0F;
+
     const glm::vec2 size = Game::windowSize();
     const size_t type = m_info.projection.index();
 
     switch (type)
     {
-        case 0:
-            m_currentUbo.projMtx = std::get<0>(m_info.projection).calc(size); // Upload as projection
-            break;    
-        case 1:
-            m_currentUbo.projMtx = std::get<1>(m_info.projection).calc(size); // Upload as ortho
-            break;
+#define SHIV_CALCPROJ(Index) \
+    case Index: \
+        m_currentUbo.projMtx = std::get<Index>(m_info.projection).calc(size); \
+        break
+        SHIV_CALCPROJ(0);
+        SHIV_CALCPROJ(1);
+#undef SHIV_CALCPROJ
         default:
             std::cerr << "[ShipRenderer] Unknown projection with id " << type << "!" << std::endl;
             break;
@@ -94,15 +93,14 @@ void SceneRenderer::render()
     *m_uboBufs[m_currentFrameBuf].ptr() = m_currentUbo;
     glBindBufferBase(GL_UNIFORM_BUFFER, 0, m_uboBufs[m_currentFrameBuf].id());
 
-    // Expand instance buffer if necessary
+    // Expand buffers if necessary
     m_instBufs[m_currentFrameBuf].resize(m_instCount);
     m_cmdBufs[m_currentFrameBuf].resize(m_cmdCount);
 
-    size_t instOffset = 0, cmdOffset = 0;
+    size_t instIndexOffset = 0, cmdIndexOffset = 0;
     for (auto& [pipeline, map] : m_queued)
         for (auto& [model, map] : map)
             for (auto& [texture, map] : map)
-            {
                 for (auto& [what, vec] : map)
                 {
                     // command
@@ -110,18 +108,16 @@ void SceneRenderer::render()
                     cmd.firstIndex = what.offset;
                     cmd.count = what.size;
                     cmd.instanceCount = (GLuint)vec.size();
-                    cmd.baseInstance = (GLuint)(instOffset/sizeof(InstanceData));
-                    std::memcpy(m_cmdBufs[m_currentFrameBuf].ptr() + cmdOffset, &cmd, sizeof(IndirectCommand));
-                    cmdOffset += sizeof(IndirectCommand);
+                    cmd.baseInstance = (GLuint)instIndexOffset;
+                    m_cmdBufs[m_currentFrameBuf].ptr()[cmdIndexOffset++] = cmd;
 
                     // instance data
-                    auto dataSize = vec.size() * sizeof(InstanceData);
-                    std::memcpy(m_instBufs[m_currentFrameBuf].ptr() + instOffset, vec.data(), dataSize);
-                    instOffset += dataSize;
+                    auto instSize = vec.size() * sizeof(InstanceData);
+                    std::memcpy(m_instBufs[m_currentFrameBuf].ptr() + instIndexOffset, vec.data(), instSize);
+                    instIndexOffset += vec.size();
                 }
-            }
 
-    cmdOffset = 0;
+    size_t cmdOffset = 0;
     glBindBuffer(GL_DRAW_INDIRECT_BUFFER, m_cmdBufs[m_currentFrameBuf].id());
     for (auto& [pipeline, map] : m_queued)
     {
@@ -129,15 +125,12 @@ void SceneRenderer::render()
         for (auto& [model, map] : map)
         {
 
-            // Get the vao of the model
-            GLuint vao = model->vao(m_currentFrameBuf);
-
             // Bind the instancing vbo to the model vao.
             // Since the size maybe changed, we just do it for every model every frame.
-            glVertexArrayVertexBuffer(vao, 1, m_instBufs[m_currentFrameBuf].id(), 0, sizeof(InstanceData));
+            glVertexArrayVertexBuffer(model->vao(), 1, m_instBufs[m_currentFrameBuf].id(), 0, sizeof(InstanceData));
 
             // Bind the vao to the pipeline
-            glBindVertexArray(vao);
+            glBindVertexArray(model->vao());
 
             for (auto& [texture, map] : map)
             {
@@ -145,7 +138,7 @@ void SceneRenderer::render()
                 {
                     glBindTextureUnit(0, texture->id());
                 }
-                glMultiDrawElementsIndirect(GL_TRIANGLES, GL_UNSIGNED_INT, (const void*)cmdOffset, (GLsizei)map.size(), 0);
+                glMultiDrawElementsIndirect(GL_TRIANGLES, GL_UNSIGNED_INT, (const void*)cmdOffset, (GLsizei)map.size(), sizeof(IndirectCommand));
                 cmdOffset += map.size() * sizeof(IndirectCommand);
             }
         }

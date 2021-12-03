@@ -104,7 +104,7 @@ public:
 	// Utility
 	//---------
 
-	void initVAOInstancing(size_t buf, GLuint vao); // TODO: Find a cleaner implementation
+	void prepareVAOInst(GLuint vao); // TODO: Find a cleaner implementation
 	void render();
 
 private:

@@ -43,6 +43,6 @@ void main()
         {
             intensity = 0.2;
         }
-        FragColor = intensity * vec4(0.2, 0.6, 0.2, 1.0);
+        FragColor = intensity * ColTilt;
     }
 }
