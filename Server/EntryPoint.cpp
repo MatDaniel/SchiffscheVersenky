@@ -1,4 +1,11 @@
-#include "ShipServer.h"
+// Entrypoint of the game server, this implements the connection between thethe game manager and the network manager
+import NetworkIoControl;
+import GameManagment;
+
+#include <memory>
+#include "ShipSock.h"
+
+
 
 void NetworkDispatchTest(
 	NetWorkIoControl&                  NetworkDevice,

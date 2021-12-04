@@ -89,11 +89,8 @@
   </ItemDefinitionGroup>
   <ItemGroup>
     <ClCompile Include="EntryPoint.cpp" />
-    <ClCompile Include="GameManager.cpp" />
-    <ClCompile Include="NetWorkIoControl.cpp" />
-  </ItemGroup>
-  <ItemGroup>
-    <ClInclude Include="ShipServer.h" />
+    <ClCompile Include="GameManagment.ixx" />
+    <ClCompile Include="NetworkIoControl.ixx" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">

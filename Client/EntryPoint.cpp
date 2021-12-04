@@ -1,4 +1,7 @@
-#include "NetworkQueue.h"
+// Implements the start of the client
+import NetworkControl;
+
+#include <ShipSock.h>
 #include "draw/Game.hpp"
 #include "game/FieldSetupScene.hpp"
 #include "game/MenuScene.hpp"

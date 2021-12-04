@@ -18,16 +18,11 @@
     <ClCompile Include="EntryPoint.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="GameManager.cpp">
+    <ClCompile Include="NetworkIoControl.ixx">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="NetWorkIoControl.cpp">
+    <ClCompile Include="GameManagment.ixx">
       <Filter>Source Files</Filter>
     </ClCompile>
-  </ItemGroup>
-  <ItemGroup>
-    <ClInclude Include="ShipServer.h">
-      <Filter>Header Files</Filter>
-    </ClInclude>
   </ItemGroup>
 </Project>

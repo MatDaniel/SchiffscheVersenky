@@ -60,7 +60,8 @@
       <ConformanceMode>true</ConformanceMode>
       <AdditionalIncludeDirectories>$(SolutionDir)3rdparty\glad_dbg\include;$(SolutionDir)3rdparty\glfw\include;$(SolutionDir)3rdparty\glm;$(SolutionDir)3rdparty\imgui;$(SolutionDir)3rdparty\imgui\backends;$(SolutionDir)3rdparty\spdlog;$(SolutionDir)3rdparty\stb;$(SolutionDir)3rdparty\tinyobjloader;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <LanguageStandard>stdcpp20</LanguageStandard>
-      <AdditionalOptions>$(SolutionDir)3rdparty\glad_dbg\src\glad.c %(AdditionalOptions)</AdditionalOptions>
+      <AdditionalOptions>
+      </AdditionalOptions>
       <LanguageStandard_C>stdc17</LanguageStandard_C>
       <MultiProcessorCompilation>true</MultiProcessorCompilation>
     </ClCompile>
@@ -80,7 +81,8 @@
       <ConformanceMode>true</ConformanceMode>
       <AdditionalIncludeDirectories>$(SolutionDir)3rdparty\glad_rel\include;$(SolutionDir)3rdparty\glfw\include;$(SolutionDir)3rdparty\glm;$(SolutionDir)3rdparty\imgui;$(SolutionDir)3rdparty\imgui\backends;$(SolutionDir)3rdparty\spdlog;$(SolutionDir)3rdparty\stb;$(SolutionDir)3rdparty\tinyobjloader;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <LanguageStandard>stdcpp20</LanguageStandard>
-      <AdditionalOptions>$(SolutionDir)3rdparty\glad_rel\src\glad.c %(AdditionalOptions)</AdditionalOptions>
+      <AdditionalOptions>
+      </AdditionalOptions>
       <LanguageStandard_C>stdc17</LanguageStandard_C>
       <MultiProcessorCompilation>true</MultiProcessorCompilation>
     </ClCompile>
@@ -113,7 +115,7 @@
     <ClCompile Include="impl\gladimpl.cpp" />
     <ClCompile Include="impl\imguiimpl.cpp" />
     <ClCompile Include="impl\miscimpl.cpp" />
-    <ClCompile Include="NetworkQueue.cpp" />
+    <ClCompile Include="NetworkCb.ixx" />
     <ClCompile Include="util\imemstream.cpp" />
   </ItemGroup>
   <ItemGroup>
@@ -134,7 +136,6 @@
     <ClInclude Include="game\FieldSetupScene.hpp" />
     <ClInclude Include="game\MenuScene.hpp" />
     <ClInclude Include="game\PlayScene.hpp" />
-    <ClInclude Include="NetworkQueue.h" />
     <ClInclude Include="resource.h" />
     <ClInclude Include="util\fnv_hash.hpp" />
     <ClInclude Include="util\imemstream.hpp" />
