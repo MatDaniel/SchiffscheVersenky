@@ -1,10 +1,11 @@
-#ifndef SHIFVRSKY_SCENE_HPP
-#define SHIFVRSKY_SCENE_HPP
+module;
 
 #include <memory>
 #include <glm/mat4x4.hpp>
 
-class Scene
+export module Draw.Scene;
+
+export class Scene
 {
 public:
 
@@ -35,34 +36,61 @@ public:
      *        Note: Ensure that the game is running,
      *              otherwise the scene might not properly load
      *              and will be replaced with the entry scene at run.
-     * @tparam T The scene to load.
+     * @param next The scene to load at the next update.
      */
-    template <class T>
-    static inline void load()
-    {
-        load(std::make_unique<T>());
-    }
-
-    /**
-     * @brief Loads a scene.
-     *        Note: Ensure that the game is running,
-     *              otherwise the scene might not properly load
-     *              and will be replaced with the entry scene at run.
-     * @param scene The scene to load.
-     */
-    static void load(std::unique_ptr<Scene>&& scene) noexcept;
+    static void load(GetterFunc next) noexcept;
 
     /**
      * @retval The current scene.
      *         Note: Might be null, if run wasn't called yet.
      */
-    static Scene *current() noexcept;
+    static Scene* current() noexcept;
+
+    /**
+     * @brief Loads the next scene if any is in queue.
+     */
+    static void next() noexcept;
+
+    /**
+     * @brief Destroys the current scene.
+     */
+    static void release() noexcept;
 
     /**
      * @brief Updates the scene. Is called every frame.
      */
-    virtual void update();
+    virtual void update() = 0;
+
+    /**
+     * @brief Window resize callback.
+     */
+    virtual void onWindowResize() = 0;
 
 };
 
-#endif // SHIFVRSKY_SCENE_HPP
+static std::unique_ptr<Scene> s_scene; // The current loaded scene
+static Scene::GetterFunc s_next; // The next scene to load
+
+inline void Scene::load(GetterFunc next) noexcept
+{
+	s_next = next;
+}
+
+inline Scene* Scene::current() noexcept
+{
+	return s_scene.get();
+}
+
+inline void Scene::next() noexcept
+{
+    if (s_next)
+    {
+        s_scene = s_next();
+        s_next = nullptr;
+    }
+}
+
+inline void Scene::release() noexcept
+{
+    s_scene.release();
+}

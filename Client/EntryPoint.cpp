@@ -1,10 +1,12 @@
 // Implements the start of the client
 import NetworkControl;
 
+import Draw.Engine;
+import Draw.Scene;
+import Scenes.FieldSetup;
+
 #include <ShipSock.h>
-#include "draw/Game.hpp"
-#include "game/FieldSetupScene.hpp"
-#include "game/MenuScene.hpp"
+#include <cstdlib>
 
 void NetworkDispatchTest(
 	ServerIoController* NetworkDevice,
@@ -23,10 +25,10 @@ void NetworkDispatchTest(
 	}
 }
 
-int main(
-	int         argc,
-	const char* argv[]
-) {
+int main(int argc, const char* argv[])
+{
+
+	/*
 	auto ServerAddress = DefaultServerAddress;
 	auto PortNumber = DefaultPortNumber;
 	if (argc >= 2)
@@ -39,10 +41,10 @@ int main(
 	SsLog("Creating networkmanager\n");
 	long Result = 0;
 	try {
-		auto &Server = *ServerIoController::CreateSingletonOverride(
+		auto& Server = *ServerIoController::CreateSingletonOverride(
 			ServerAddress,
 			PortNumber);
-		
+
 		for (;;) {
 
 			auto ResponseOption = Server.ExecuteNetworkRequestHandlerWithCallback(
@@ -70,8 +72,10 @@ int main(
 	}
 
 	SsLog("exiting handler loop");
+	*/
 
 
-
-    return Game::run(Scene::getter<MenuScene>());
+	Scene::load(Scene::getter<FieldSetupScene>());
+	return Engine::run();
+	
 }

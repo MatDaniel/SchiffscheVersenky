@@ -58,7 +58,7 @@
       <SDLCheck>true</SDLCheck>
       <PreprocessorDefinitions>_DEBUG;_CONSOLE;_CRT_SECURE_NO_WARNINGS;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <ConformanceMode>true</ConformanceMode>
-      <AdditionalIncludeDirectories>$(SolutionDir)3rdparty\glad_dbg\include;$(SolutionDir)3rdparty\glfw\include;$(SolutionDir)3rdparty\glm;$(SolutionDir)3rdparty\imgui;$(SolutionDir)3rdparty\imgui\backends;$(SolutionDir)3rdparty\spdlog;$(SolutionDir)3rdparty\stb;$(SolutionDir)3rdparty\tinyobjloader;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>$(SolutionDir)3rdparty\glad_dbg\include;$(SolutionDir)3rdparty\glfw\include;$(SolutionDir)3rdparty\glm;$(SolutionDir)3rdparty\imgui;$(SolutionDir)3rdparty\imgui\backends;$(SolutionDir)3rdparty\spdlog\include;$(SolutionDir)3rdparty\stb;$(SolutionDir)3rdparty\tinyobjloader;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <LanguageStandard>stdcpp20</LanguageStandard>
       <AdditionalOptions>
       </AdditionalOptions>
@@ -79,7 +79,7 @@
       <SDLCheck>true</SDLCheck>
       <PreprocessorDefinitions>NDEBUG;_CONSOLE;_CRT_SECURE_NO_WARNINGS;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <ConformanceMode>true</ConformanceMode>
-      <AdditionalIncludeDirectories>$(SolutionDir)3rdparty\glad_rel\include;$(SolutionDir)3rdparty\glfw\include;$(SolutionDir)3rdparty\glm;$(SolutionDir)3rdparty\imgui;$(SolutionDir)3rdparty\imgui\backends;$(SolutionDir)3rdparty\spdlog;$(SolutionDir)3rdparty\stb;$(SolutionDir)3rdparty\tinyobjloader;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>$(SolutionDir)3rdparty\glad_rel\include;$(SolutionDir)3rdparty\glfw\include;$(SolutionDir)3rdparty\glm;$(SolutionDir)3rdparty\imgui;$(SolutionDir)3rdparty\imgui\backends;$(SolutionDir)3rdparty\spdlog\include;$(SolutionDir)3rdparty\stb;$(SolutionDir)3rdparty\tinyobjloader;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <LanguageStandard>stdcpp20</LanguageStandard>
       <AdditionalOptions>
       </AdditionalOptions>
@@ -98,47 +98,23 @@
     <ResourceCompile Include="client.rc" />
   </ItemGroup>
   <ItemGroup>
-    <ClCompile Include="draw\Game.cpp" />
-    <ClCompile Include="draw\gobj\Projection.cpp" />
-    <ClCompile Include="draw\res\Materials.cpp" />
-    <ClCompile Include="draw\res\Models.cpp" />
-    <ClCompile Include="draw\res\Resource.cpp" />
-    <ClCompile Include="draw\res\ShaderPipelines.cpp" />
-    <ClCompile Include="draw\res\ShaderStages.cpp" />
-    <ClCompile Include="draw\res\Textures.cpp" />
-    <ClCompile Include="draw\Scene.cpp" />
-    <ClCompile Include="draw\SceneRenderer.cpp" />
+    <ClCompile Include="Engine.ixx" />
     <ClCompile Include="EntryPoint.cpp" />
-    <ClCompile Include="game\FieldSetupScene.cpp" />
-    <ClCompile Include="game\MenuScene.cpp" />
-    <ClCompile Include="game\PlayScene.cpp" />
+    <ClCompile Include="scenes\FieldSetupScene.ixx" />
     <ClCompile Include="impl\gladimpl.cpp" />
     <ClCompile Include="impl\imguiimpl.cpp" />
     <ClCompile Include="impl\miscimpl.cpp" />
     <ClCompile Include="NetworkCb.ixx" />
-    <ClCompile Include="util\imemstream.cpp" />
+    <ClCompile Include="Buffers.ixx" />
+    <ClCompile Include="Renderer.ixx" />
+    <ClCompile Include="Resources.ixx" />
+    <ClCompile Include="Scene.ixx" />
+    <ClCompile Include="RendererInput.ixx" />
   </ItemGroup>
   <ItemGroup>
-    <ClInclude Include="draw\Game.hpp" />
-    <ClInclude Include="draw\gobj\Camera.hpp" />
-    <ClInclude Include="draw\gobj\Projection.hpp" />
-    <ClInclude Include="draw\gobj\SunLight.hpp" />
-    <ClInclude Include="draw\res\Materials.hpp" />
-    <ClInclude Include="draw\res\Models.hpp" />
-    <ClInclude Include="draw\res\Resource.hpp" />
-    <ClInclude Include="draw\res\ShaderPipelines.hpp" />
-    <ClInclude Include="draw\res\ShaderStages.hpp" />
-    <ClInclude Include="draw\res\Textures.hpp" />
-    <ClInclude Include="draw\Scene.hpp" />
-    <ClInclude Include="draw\SceneRenderer.hpp" />
-    <ClInclude Include="draw\util\Buffers.hpp" />
-    <ClInclude Include="draw\util\Vertex.hpp" />
-    <ClInclude Include="game\FieldSetupScene.hpp" />
-    <ClInclude Include="game\MenuScene.hpp" />
-    <ClInclude Include="game\PlayScene.hpp" />
+    <ClInclude Include="util\ShaderConstants.h" />
     <ClInclude Include="resource.h" />
-    <ClInclude Include="util\fnv_hash.hpp" />
-    <ClInclude Include="util\imemstream.hpp" />
+    <ClInclude Include="util\FNVHash.hpp" />
   </ItemGroup>
   <ItemGroup>
     <None Include="res\models\teapot.obj">
@@ -147,6 +123,8 @@
     <None Include="res\models\water.obj">
       <FileType>Document</FileType>
     </None>
+    <None Include="res\shaders\cel.frag" />
+    <None Include="res\shaders\cel.vert" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">

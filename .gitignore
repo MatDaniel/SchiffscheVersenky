@@ -1,7 +1,9 @@
 #
 # Visual Studio
 #
+
 CmakeSettings.json
+out
 
 #
 # Visual Studio Code

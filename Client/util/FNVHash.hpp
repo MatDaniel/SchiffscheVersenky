@@ -1,5 +1,5 @@
-#ifndef SHIFVRSKY_FNV_HASH_HPP
-#define SHIFVRSKY_FNV_HASH_HPP
+#ifndef SHIFVRSKY_FNVHASH_HPP
+#define SHIFVRSKY_FNVHASH_HPP
 
 #include <xhash>
 
@@ -24,4 +24,4 @@ struct std::hash<Type> \
     } \
 };
 
-#endif // SHIFVRSKY_FNV_HASH_HPP
+#endif // SHIFVRSKY_FNVHASH_HPP
