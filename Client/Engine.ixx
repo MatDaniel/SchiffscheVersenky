@@ -162,12 +162,15 @@ inline static void initResources()
 	// Shader Pipelines
     auto* cel_prog = Resources::emplace<ShaderPipeline>("Cel", cel_vert, cel_frag);
 
+    // Texture
+	constexpr char dummy_texdata[3] { 0, 0, 0 };
+    auto* dummy_tex = Resources::emplace<Texture>("Dummy", 3, 1, 1, &dummy_texdata);
+
 	// Materials
-    Resources::emplace<Material>("Border", cel_prog, nullptr, glm::vec4(1.0F, 1.0F, 1.0F, 1.0F));
-    Resources::emplace<Material>("Water", cel_prog, nullptr, glm::vec4(0.18F, 0.33F, 1.0F, 1.0F));
+    Resources::emplace<Material>("Border", cel_prog, dummy_tex, glm::vec4(1.0F, 1.0F, 1.0F, 1.0F));
+    Resources::emplace<Material>("Water", cel_prog, dummy_tex, glm::vec4(0.18F, 0.33F, 1.0F, 1.0F));
 
 	// Models
-    Resources::emplace<Model>("Water", Resource(IDR_MESH_WATER));
     Resources::emplace<Model>("Teapot", Resource(IDR_MESH_TEAPOT));
 
 }

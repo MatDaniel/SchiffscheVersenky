@@ -18,9 +18,11 @@ module;
 #include <unordered_map>
 #include <memory>
 #include <string>
+#include <span>
 
-#include "util/ShaderConstants.h"
+#include "util/ShaderConstants.hpp"
 #include "util/FNVHash.hpp"
+#include "Vertex.hpp"
 
 export module Draw.Resources;
 import Draw.Renderer.Input;
@@ -202,7 +204,7 @@ public:
         auto codes = code.c_str();
         m_id = glCreateShaderProgramv(type, 1, &codes);
         if (checkErrors(m_id) && type == GL_FRAGMENT_SHADER)
-            glProgramUniform1ui(m_id, TEXTURE_LOCATION, 0);
+            glProgramUniform1i(m_id, TEXTURE_LOCATION, 0);
     }
 
     inline ~ShaderStage()
@@ -305,6 +307,53 @@ private:
 // Represents an image that can be used by opengl.
 // It's loaded from a resource into gpu memory.
 
+namespace
+{
+
+	constexpr GLenum ImgInternalFormats[4]
+	{
+		GL_R8,
+		GL_RG8,
+		GL_RGB8,
+		GL_RGBA8
+	};
+
+	constexpr GLenum ImgFormats[4]
+	{
+		GL_RED,
+		GL_RG,
+		GL_RGB,
+		GL_RGBA
+	};
+
+	inline void initTexture(GLuint id, GLuint channels, GLsizei width, GLsizei height, const void* data)
+	{
+		assert(channels > 0 && channels <= 4); // Invalid channel amount!
+		GLenum format = ImgFormats[channels],
+			iFormat = ImgInternalFormats[channels];
+
+		// Check if the format is valid.
+		if (format && iFormat)
+		{
+
+			// Setup texture parameters
+			glTextureParameteri(id, GL_TEXTURE_WRAP_S, GL_REPEAT);
+			glTextureParameteri(id, GL_TEXTURE_WRAP_T, GL_REPEAT);
+			glTextureParameteri(id, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
+			glTextureParameteri(id, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+
+			// Upload texture to the gpu
+			glTextureStorage2D(id, 1, iFormat, width, height);
+			glTextureSubImage2D(id, 0, 0, 0, width, height, format, GL_UNSIGNED_BYTE, data);
+
+			// Generate mipmap for the texture
+			glGenerateTextureMipmap(id);
+
+		}
+	}
+
+}
+
 export class Texture
 {
 public:
@@ -312,6 +361,17 @@ public:
     inline Texture()
 		: m_id(0)
 	{
+	}
+
+	inline Texture(GLuint channels, GLsizei width, GLsizei height, const void* data)
+	{
+		
+		// Create a texture handle.
+		glCreateTextures(GL_TEXTURE_2D, 1, &m_id);
+
+		// Initialize the texture
+		initTexture(m_id, channels, width, height, data);
+
 	}
 
 	inline Texture(const Resource& res)
@@ -335,53 +395,10 @@ public:
 			return; // Abort
 		}
 
-		// Select the correct opengl format from the enum.
-		GLenum format, iFormat;
-		switch (channels)
-		{
-		case 1:
-			format = GL_RED;
-			iFormat = GL_R8;
-			break;
-		case 2:
-			format = GL_RG;
-			iFormat = GL_RG8;
-			break;
-		case 3:
-			format = GL_RGB;
-			iFormat = GL_RGB8;
-			break;
-		case 4:
-			format = GL_RGBA;
-			iFormat = GL_RGBA8;
-			break;
-		default:
-			format = 0;
-			iFormat = 0;
-			std::cerr << "Error: Could not load any texture. Invalid channel amount " << channels << '!' << std::endl;
-			break;
-		}
+		// Initialize the texture
+		initTexture(m_id, channels, width, height, uncompressed_buf);
 
-		// Check if the format is valid.
-		if (format && iFormat)
-		{
-
-			// Setup texture parameters
-			glTextureParameteri(m_id, GL_TEXTURE_WRAP_S, GL_REPEAT);
-			glTextureParameteri(m_id, GL_TEXTURE_WRAP_T, GL_REPEAT);
-			glTextureParameteri(m_id, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
-			glTextureParameteri(m_id, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-
-			// Upload texture to the gpu
-			glTextureStorage2D(m_id, 1, iFormat, width, height);
-			glTextureSubImage2D(m_id, 0, 0, 0, width, height, format, GL_UNSIGNED_BYTE, uncompressed_buf);
-
-			// Generate mipmap for the texture
-			glGenerateTextureMipmap(m_id);
-
-		}
-
-		// Remove the uncompressed texture from ram, because it's in vram
+		// Remove the uncompressed texture from ram, because it's now in vram
 		// and we don't want to process it any further.
 		stbi_image_free(uncompressed_buf);
 
@@ -436,23 +453,6 @@ export inline bool operator==(const Material& lhs, const Material& rhs) {
 }
 
 export SHIV_FNV_HASH(Material)
-
-// -- Vertex --
-// Contains data of a point.
-
-export struct Vertex {
-	glm::vec3 position;
-	glm::vec3 normal;
-	glm::vec2 texCoords;
-};
-
-export inline bool operator==(const Vertex& lhs, const Vertex& rhs) {
-	return lhs.position == rhs.position
-		&& lhs.normal == rhs.normal
-		&& lhs.texCoords == rhs.texCoords;
-}
-
-export SHIV_FNV_HASH(Vertex)
 
 // -- Model --
 // This class is a reference to a model in the gpu.
@@ -534,42 +534,146 @@ namespace
 
     };
 
+	inline void initModelBuffers(GLuint vao, GLuint vbo, GLuint ebo,
+		std::span<Vertex> vertices, std::span<uint32_t> indices)
+	{
+
+		// Upload the vertices and indices to the gpu buffers.
+		glNamedBufferStorage(vbo, sizeof(Vertex) * vertices.size(), vertices.data(), 0);
+		glNamedBufferStorage(ebo, sizeof(uint32_t) * indices.size(), indices.data(), 0);
+
+		// Describe the vertex buffer attributes
+		glVertexArrayAttribFormat(vao, POSITION_ATTRIBINDEX, sizeof(Vertex::position) / sizeof(float), GL_FLOAT, GL_FALSE, offsetof(Vertex, position));
+		glVertexArrayAttribFormat(vao, NORMAL_ATTRIBINDEX, sizeof(Vertex::normal) / sizeof(float), GL_FLOAT, GL_FALSE, offsetof(Vertex, normal));
+		glVertexArrayAttribFormat(vao, TEXCOORDS_ATTRIBINDEX, sizeof(Vertex::texCoords) / sizeof(float), GL_FLOAT, GL_FALSE, offsetof(Vertex, texCoords));
+
+		// Bind attributes to bindings
+		glVertexArrayAttribBinding(vao, POSITION_ATTRIBINDEX, 0);
+		glVertexArrayAttribBinding(vao, NORMAL_ATTRIBINDEX, 0);
+		glVertexArrayAttribBinding(vao, TEXCOORDS_ATTRIBINDEX, 0);
+
+		// Enable vertex attributes
+		glEnableVertexArrayAttrib(vao, POSITION_ATTRIBINDEX);
+		glEnableVertexArrayAttrib(vao, NORMAL_ATTRIBINDEX);
+		glEnableVertexArrayAttrib(vao, TEXCOORDS_ATTRIBINDEX);
+
+		// Bind the buffers to the vertex array object.
+		glVertexArrayVertexBuffer(vao, 0, vbo, 0, sizeof(Vertex));
+		glVertexArrayElementBuffer(vao, ebo);
+
+		// Setup divisor per vertex
+		glVertexArrayBindingDivisor(vao, 0, 0);
+
+		// Model matrix constants
+		constexpr size_t rowSize = sizeof(decltype(InstanceData::modelMtx)::row_type);
+		constexpr size_t colSize = sizeof(decltype(InstanceData::modelMtx)::col_type);
+		constexpr size_t rowAmount = colSize / sizeof(float);
+
+		// Describe the vertex buffer attributes
+		for (GLuint i = 0; i < rowAmount; i++)
+			glVertexArrayAttribFormat(vao, MODELMTX_ATTRIBINDEX + i, rowSize / sizeof(float), GL_FLOAT, GL_FALSE, (GLuint)(offsetof(InstanceData, modelMtx) + i * rowSize));
+		glVertexArrayAttribFormat(vao, (GLuint)COLTILT_ATTRIBINDEX, sizeof(InstanceData::colorTilt) / sizeof(float), GL_FLOAT, GL_FALSE, offsetof(InstanceData, colorTilt));
+
+		// Bind attributes to bindings
+		for (GLuint i = 0; i < rowAmount; i++)
+			glVertexArrayAttribBinding(vao, MODELMTX_ATTRIBINDEX + i, 1);
+		glVertexArrayAttribBinding(vao, COLTILT_ATTRIBINDEX, 1);
+
+		// Enable vertex attributes
+		for (GLuint i = 0; i < rowAmount; i++)
+			glEnableVertexArrayAttrib(vao, MODELMTX_ATTRIBINDEX + i);
+		glEnableVertexArrayAttrib(vao, COLTILT_ATTRIBINDEX);
+
+		// Setup divisor per instance
+		glVertexArrayBindingDivisor(vao, 1, 1);
+
+	}
+
 }
 
 export class Model
 {
 public:
 
-    /**
-     * @brief Contains information on how to access the ebo in the model to draw a specific part of the model.
-     */
-    struct IndexInfo
-    {
-        uint32_t offset { };
-        uint32_t size { };
-    };
+	/**
+	 * @brief Contains information on how to access the ebo in the model to draw a specific part of the model.
+	 */
+	struct IndexInfo
+	{
+		uint32_t offset { };
+		uint32_t size { };
+	};
 
     /**
      * @brief Represents a part of the loaded model with multiple materials attached to it.
      */
     struct Part
     {
-        std::string name { };
+        
+		std::string name { };
         std::unordered_map<Material, IndexInfo> meshes { };
+
+		Part(std::string name = "")
+			: name(name)
+		{
+		}
+
+		Part(Part&& other) noexcept
+			: name(std::move(other.name))
+			, meshes(std::move(other.meshes))
+		{
+		}
+
+		Part(const Part& other) noexcept
+			: name(other.name)
+			, meshes(other.meshes)
+		{
+		}
+
+		Part& operator=(Part&& other) noexcept
+		{
+			name = std::move(other.name);
+			meshes = std::move(other.meshes);
+			return *this;
+		}
+
+		Part& operator=(const Part& other)
+		{
+			name = other.name;
+			meshes = other.meshes;
+			return *this;
+		}
+
     };
 
     inline Model()
-		: m_vao{ }
+		: m_vao(0)
 		, m_vbo(0)
 		, m_ebo(0)
-		, m_all("ALL")
 		, m_parts()
 	{
 	}
 
+	inline Model(std::span<Vertex> vertices, std::span<uint32_t> indices, std::span<Part> parts)
+		: m_parts()
+	{
+
+		// Create the buffers
+		glCreateVertexArrays(1, &m_vao);
+		glCreateBuffers(2, m_buffers);
+
+		// Upload data and describe the buffers
+		initModelBuffers(m_vao, m_vbo, m_ebo, vertices, indices);
+
+		// Copy the parts from the span to the internal vector
+		m_parts.reserve(parts.size());
+		for (auto& part : parts)
+			m_parts.emplace_back(std::move(part));
+
+	}
+
     inline Model(const Resource& res)
-		: m_all("ALL")
-		, m_parts()
+		: m_parts()
 	{
 
 		// Create the buffers:
@@ -610,6 +714,8 @@ public:
 								  // a buffer once which can hold all indices.
 								  // This variable will increment on each index
 								  // processing.
+
+		Part all("$ALL"); // A model part that describes the whole model.
 
 		for (const auto& shape : raw.shapes)
 		{
@@ -676,7 +782,7 @@ public:
 					};
 
 					// Add the vertex to the buffer and get its index or of the existing vertex.
-					auto [iter, result] = uniqueVertices.try_emplace(vertex, static_cast<uint32_t>(vertices.size()));
+					auto [iter, result] = uniqueVertices.try_emplace(vertex, (uint32_t)vertices.size());
 					if (result)
 						vertices.emplace_back(vertex);
 
@@ -695,7 +801,7 @@ public:
 			{
 
 				// Get material indices.
-				auto& allMatIndices = m_all.meshes[mat];
+				auto& allMatIndices = all.meshes[mat];
 				auto& partMatIndices = part.meshes[mat];
 
 				// Apply current part indices info for that material.
@@ -723,7 +829,7 @@ public:
 		{
 
 			// Update offsets for the parts (stage 2)
-			m_all.meshes[iIter.first].offset = indices_offset;
+			all.meshes[iIter.first].offset = indices_offset;
 			for (auto& part : m_parts)
 			{
 				auto mIter = part.meshes.find(iIter.first);
@@ -742,6 +848,8 @@ public:
 
 		}
 
+		m_parts.emplace_back(std::move(all));
+
 
 
 
@@ -749,54 +857,9 @@ public:
 		// This means, we have to upload the data to the gpu and
 		// describe the content in the buffer for opengl.
 
-		// Upload the vertices and indices to the gpu buffers.
-		glNamedBufferData(m_vbo, sizeof(Vertex) * vertices.size(), vertices.data(), GL_STATIC_DRAW);
-		glNamedBufferData(m_ebo, sizeof(uint32_t) * total_indices, indices, GL_STATIC_DRAW);
-
-		// Describe the vertex buffer attributes
-		glVertexArrayAttribFormat(m_vao, POSITION_ATTRIBINDEX, sizeof(Vertex::position) / sizeof(float), GL_FLOAT, GL_FALSE, offsetof(Vertex, position));
-		glVertexArrayAttribFormat(m_vao, NORMAL_ATTRIBINDEX, sizeof(Vertex::normal) / sizeof(float), GL_FLOAT, GL_FALSE, offsetof(Vertex, normal));
-		glVertexArrayAttribFormat(m_vao, TEXCOORDS_ATTRIBINDEX, sizeof(Vertex::texCoords) / sizeof(float), GL_FLOAT, GL_FALSE, offsetof(Vertex, texCoords));
-
-		// Bind attributes to bindings
-		glVertexArrayAttribBinding(m_vao, POSITION_ATTRIBINDEX, 0);
-		glVertexArrayAttribBinding(m_vao, NORMAL_ATTRIBINDEX, 0);
-		glVertexArrayAttribBinding(m_vao, TEXCOORDS_ATTRIBINDEX, 0);
-
-		// Enable vertex attributes
-		glEnableVertexArrayAttrib(m_vao, POSITION_ATTRIBINDEX);
-		glEnableVertexArrayAttrib(m_vao, NORMAL_ATTRIBINDEX);
-		glEnableVertexArrayAttrib(m_vao, TEXCOORDS_ATTRIBINDEX);
-
-		// Bind the buffers to the vertex array object.
-		glVertexArrayVertexBuffer(m_vao, 0, m_vbo, 0, sizeof(Vertex));
-		glVertexArrayElementBuffer(m_vao, m_ebo);
-
-		// Setup divisor per vertex
-		glVertexArrayBindingDivisor(m_vao, 0, 0);
-
-		// Model matrix constants
-		constexpr size_t rowSize = sizeof(decltype(InstanceData::modelMtx)::row_type);
-		constexpr size_t colSize = sizeof(decltype(InstanceData::modelMtx)::col_type);
-		constexpr size_t rowAmount = colSize / sizeof(float);
-
-		// Describe the vertex buffer attributes
-		for (GLuint i = 0; i < rowAmount; i++)
-			glVertexArrayAttribFormat(m_vao, MODELMTX_ATTRIBINDEX + i, rowSize / sizeof(float), GL_FLOAT, GL_FALSE, (GLuint)(offsetof(InstanceData, modelMtx) + i * rowSize));
-		glVertexArrayAttribFormat(m_vao, (GLuint)COLTILT_ATTRIBINDEX, sizeof(InstanceData::colorTilt) / sizeof(float), GL_FLOAT, GL_FALSE, offsetof(InstanceData, colorTilt));
-
-		// Bind attributes to bindings
-		for (GLuint i = 0; i < rowAmount; i++)
-			glVertexArrayAttribBinding(m_vao, MODELMTX_ATTRIBINDEX + i, 1);
-		glVertexArrayAttribBinding(m_vao, COLTILT_ATTRIBINDEX, 1);
-
-		// Enable vertex attributes
-		for (GLuint i = 0; i < rowAmount; i++)
-			glEnableVertexArrayAttrib(m_vao, MODELMTX_ATTRIBINDEX + i);
-		glEnableVertexArrayAttrib(m_vao, COLTILT_ATTRIBINDEX);
-
-		// Setup divisor per instance
-		glVertexArrayBindingDivisor(m_vao, 1, 1);
+		initModelBuffers(m_vao, m_vbo, m_ebo,
+			std::span(vertices), std::span(indices, total_indices));
+		
 
 		// Cleanup
 		delete[] indices;
@@ -816,7 +879,6 @@ public:
 		: m_vao(other.m_vao)
 		, m_vbo(other.m_vbo)
 		, m_ebo(other.m_ebo)
-		, m_all(std::move(other.m_all))
 		, m_parts(std::move(other.m_parts))
 	{
 		other.m_vao = 0;
@@ -829,7 +891,6 @@ public:
 		m_vao = other.m_vao;
 		m_vbo = other.m_vbo;
 		m_ebo = other.m_ebo;
-		m_all = std::move(other.m_all);
 		m_parts = std::move(other.m_parts);
 		other.m_vao = 0;
 		other.m_vbo = 0;
@@ -863,21 +924,16 @@ public:
         return m_parts;
     }
 
-    inline const Part& all() const noexcept
-    {
-        return m_all;
-    }
-
-    inline Part find(const std::string& name) const noexcept
+    inline const Part* find(const std::string& name) const noexcept
     {
 
         // Return first part with the name
         for (auto& part : m_parts)
             if (part.name == name)
-                return part;
+                return &part;
 
-        return { }; // or return an null model part,
-                    // it won't draw any triangles.
+        return nullptr; // or return an null model part,
+                        // it won't draw any triangles.
 
     }
 
@@ -892,7 +948,6 @@ private:
         GLuint m_buffers[2];
     };
 
-    Part m_all;
     std::vector<Part> m_parts;
 
 };

@@ -1,5 +1,4 @@
-#ifndef SHIFVRSKY_CONSTANTS_HPP
-#define SHIFVRSKY_CONSTANTS_HPP
+#pragma once
 
 #include <glad/glad.h>
 
@@ -15,5 +14,3 @@ constexpr GLuint COLTILT_ATTRIBINDEX = 7;
 
 // Misc
 constexpr size_t BUFFERING_AMOUNT = 2;
-
-#endif // SHIFVRSKY_CONSTANTS_HPP

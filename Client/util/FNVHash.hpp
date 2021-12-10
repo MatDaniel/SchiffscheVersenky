@@ -1,5 +1,4 @@
-#ifndef SHIFVRSKY_FNVHASH_HPP
-#define SHIFVRSKY_FNVHASH_HPP
+#pragma once
 
 #include <xhash>
 
@@ -23,5 +22,3 @@ struct std::hash<Type> \
         return fnFNV((const uint8_t*)&val, (const uint8_t*)&val + 1); \
     } \
 };
-
-#endif // SHIFVRSKY_FNVHASH_HPP

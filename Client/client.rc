@@ -10,5 +10,4 @@ IDR_VSHA_CEL        RT_RCDATA "res\\shaders\\cel.vert"
 IDR_FSHA_CEL        RT_RCDATA "res\\shaders\\cel.frag"
 
 // Meshes
-IDR_MESH_WATER      RT_RCDATA "res\\models\\water.obj"
 IDR_MESH_TEAPOT     RT_RCDATA "res\\models\\teapot.obj"

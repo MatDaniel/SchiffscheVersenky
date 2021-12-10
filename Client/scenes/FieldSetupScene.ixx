@@ -7,11 +7,11 @@ module;
 #include <string>
 
 export module Scenes.FieldSetup;
-
 import Draw.Scene;
 import Draw.Engine;
 import Draw.Resources;
 import Draw.Renderer;
+import Game.GameField;
 
 export class FieldSetupScene final : public Scene
 {
@@ -19,7 +19,6 @@ public:
 
 	inline FieldSetupScene()
 		: renderer()
-		, waterModel(Resources::find<Model>("Water"))
 	{
 
 		auto& info = renderer.info();
@@ -50,9 +49,10 @@ public:
 		glClearColor(0.8F, 0.2F, 0.1F, 1.0F);
 		glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
-		renderer.draw(
-			glm::translate(glm::mat4(1.0F), glm::vec3(0.0F, 0.0F, 0.0F)), // Position
-			waterModel);
+		gameField.draw(
+			renderer,
+			glm::scale(glm::mat4(1.0F), glm::vec3(21.0F, 0.0F, 21.0F))
+		);
 
 		renderer.render();
 
@@ -69,6 +69,6 @@ private:
 	SceneRenderer renderer;
 
 	// Resources
-	Model* waterModel;
+	GameField gameField { 10, 10 };
 	
 };

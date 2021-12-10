@@ -14,7 +14,7 @@ module;
 #include <array>
 #include <iostream>
 
-#include "util/ShaderConstants.h"
+#include "util/ShaderConstants.hpp"
 
 export module Draw.Renderer;
 import Draw.Renderer.Input;
@@ -120,14 +120,8 @@ public:
 		uploadProjection();
 	}
 
-	SceneRenderer(SceneRenderer&& other)
-		: m_info(other.m_info)
-		, m_currentUbo(other.m_currentUbo)
-	{
-
-	}
-
-	SceneRenderer& operator=(SceneRenderer&&) = delete;
+	SceneRenderer(SceneRenderer&& other) = delete;
+	SceneRenderer& operator=(SceneRenderer&& other) = delete;
 	SceneRenderer(const SceneRenderer&) = delete;
 	SceneRenderer& operator=(const SceneRenderer&) = delete;
 
@@ -202,7 +196,8 @@ public:
 
 	inline void draw(const glm::mat4& mtx, const Model* model)
 	{
-		draw(mtx, model, model->all());
+		for (auto& part : model->parts())
+			draw(mtx, model, part);
 	}
 
 	inline void render()

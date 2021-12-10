@@ -43,6 +43,6 @@ void main()
         {
             intensity = 0.2;
         }
-        FragColor = intensity * ColTilt;
+        FragColor = intensity * vec4(mix(texture(tex, TexCoords).xyz, ColTilt.xyz, ColTilt.w), 1.0);
     }
 }

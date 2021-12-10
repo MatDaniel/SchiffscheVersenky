@@ -100,6 +100,7 @@
   <ItemGroup>
     <ClCompile Include="Engine.ixx" />
     <ClCompile Include="EntryPoint.cpp" />
+    <ClCompile Include="GameField.ixx" />
     <ClCompile Include="scenes\FieldSetupScene.ixx" />
     <ClCompile Include="impl\gladimpl.cpp" />
     <ClCompile Include="impl\imguiimpl.cpp" />
@@ -112,15 +113,13 @@
     <ClCompile Include="RendererInput.ixx" />
   </ItemGroup>
   <ItemGroup>
-    <ClInclude Include="util\ShaderConstants.h" />
+    <ClInclude Include="util\ShaderConstants.hpp" />
     <ClInclude Include="resource.h" />
     <ClInclude Include="util\FNVHash.hpp" />
+    <ClInclude Include="Vertex.hpp" />
   </ItemGroup>
   <ItemGroup>
     <None Include="res\models\teapot.obj">
-      <FileType>Document</FileType>
-    </None>
-    <None Include="res\models\water.obj">
       <FileType>Document</FileType>
     </None>
     <None Include="res\shaders\cel.frag" />
