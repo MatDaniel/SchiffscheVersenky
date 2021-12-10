@@ -4,8 +4,9 @@ import NetworkControl;
 import Draw.Engine;
 import Draw.Scene;
 import Scenes.FieldSetup;
+import ShipSock;
 
-#include <ShipSock.h>
+#include <SharedLegacy.h>
 #include <cstdlib>
 
 void NetworkDispatchTest(

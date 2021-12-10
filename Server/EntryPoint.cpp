@@ -2,8 +2,12 @@
 import NetworkIoControl;
 import GameManagment;
 
+#include <SharedLegacy.h>
 #include <memory>
-#include "ShipSock.h"
+
+extern spdlogger GameLog;
+extern spdlogger ServerLog;
+spdlogger LayerLog;
 
 
 
@@ -19,33 +23,28 @@ void NetworkDispatchTest(
 
 	case NetWorkIoControl::IoRequestPacket::INCOMING_PACKET:
 	{
-		SsLog("Incoming packet requested on socket [%p]\n",
-			NetworkRequest.RequestingSocket);
 		auto PacketBuffer = std::make_unique<char[]>(PACKET_BUFFER_SIZE);
 		auto Result = recv(NetworkRequest.RequestingSocket,
 			PacketBuffer.get(),
 			PACKET_BUFFER_SIZE,
 			0);
-
+		
 		switch (Result) {
 		case SOCKET_ERROR:
-			SsAssert(1,
-				"Requesting socket failed to receive data: %d",
-				WSAGetLastError());
 			NetworkRequest.IoRequestStatus = NetWorkIoControl::IoRequestPacket::STATUS_REQUEST_ERROR;
+			ServerLog->error("fatal on receive on requesting socket[{:04x}], {}",
+				NetworkRequest.RequestingSocket, WSAGetLastError());
 			break;
 
 		case 0:
-			SsLog("Socket [%p:%p] was closed by client: %d",
-				NetworkRequest.RequestingSocket,
-				&NetworkRequest,
-				WSAGetLastError());
 			NetworkRequest.IoRequestStatus = NetWorkIoControl::IoRequestPacket::STATUS_REQUEST_IGNORED;
+			ServerLog->warn("Socket [{:04x}] was gracefully disconnected", NetworkRequest.RequestingSocket);
 			break;
 
 		default:
-			SsLog("Control handler received ship sock control command,\n"
-				"This message may never been show but is implemented for completeness\n");
+			// Request has to be handled here
+
+
 
 			NetworkRequest.IoRequestStatus = NetWorkIoControl::IoRequestPacket::STATUS_REQUEST_COMPLETED;
 		}
@@ -53,15 +52,12 @@ void NetworkDispatchTest(
 		break;
 
 	case NetWorkIoControl::IoRequestPacket::SOCKET_DISCONNECTED:
-		SsLog("Client [%p:%p] is disconnecting\n",
-			NetworkRequest.RequestingSocket,
-			&NetworkRequest);
 		NetworkRequest.IoRequestStatus = NetWorkIoControl::IoRequestPacket::STATUS_REQUEST_COMPLETED;
+		ServerLog->warn("Socket [{:04x}] was gracefully disconnected", NetworkRequest.RequestingSocket);
 		break;
 
 	default:
-		SsLog("IoRequestPacket unhandled [%p]",
-			&NetworkRequest);
+		ServerLog->warn("Io request left untreated, fatal");
 	}
 }
 
@@ -76,6 +72,14 @@ int main(
 	long Result = 0;
 	
 	try {
+		// Creating Loggers, we need 3 for each component (Game, Server, Layer)
+		GameLog = spdlog::stdout_color_st("Game");
+		ServerLog = spdlog::stdout_color_st("Socket");
+		LayerLog = spdlog::stdout_color_st("Layer"); 
+	
+
+
+		// Creating network manager
 		auto& ShipSocketObject = *NetWorkIoControl::CreateSingletonOverride(PortNumber);
 		
 		SsLog("Starting to accept arbitrary requests and setting up worker threads for possible clients");
@@ -88,6 +92,13 @@ int main(
 				Result))
 				return EXIT_FAILURE;
 		}
+	}
+	catch (const spdlog::spdlog_ex& Exception) {
+
+		SsAssert(1,
+			"spdlog failed with: \"%s\"",
+			Exception.what());
+		return EXIT_FAILURE;
 	}
 	catch (const int& ExceptionCode) {
 		

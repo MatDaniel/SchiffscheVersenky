@@ -4,10 +4,12 @@
 module;
 
 #define FD_SETSIZE 1
-#include <ShipSock.h>
+#include <SharedLegacy.h>
 #include <memory>
 
 export module NetworkControl;
+import ShipSock;
+using namespace std;
 
 
 
@@ -15,7 +17,7 @@ export class ServerIoController
 	: private SocketWrap {
 public:
 	struct IoRequestPacketIndirect {
-		enum IoServiceRoutineCtl {           // a control code specifiying the type of handling required
+		enum IoServiceRoutineCtl {           // a control code specifying the type of handling required
 			NO_COMMAND,                      // reserved for @Lima, dont use
 			INCOMING_PACKET,
 			INCOMING_PACKET_PRIORITIZED,
@@ -37,9 +39,9 @@ public:
 		} IoRequestStatus;
 	};
 	typedef void(*MajorFunction)(                // this has to handle the networking requests being both capable of reading and sending requests
-		ServerIoController* NetworkDevice,	 // a pointer to the NetWorkIoController responsible of said requestpacket
+		ServerIoController*      NetworkDevice,  // a pointer to the NetWorkIoController responsible of said requestpacket
 		IoRequestPacketIndirect* NetworkRequest, // a pointer to a network request packet describing the current request
-		void* UserContext	 // A pointer to caller defined data thats forwarded to the callback in every call, could be the GameManager class or whatever
+		void*                    UserContext     // A pointer to caller defined data thats forwarded to the callback in every call, could be the GameManager class or whatever
 		);
 
 
@@ -59,7 +61,7 @@ public:
 				ServerName,
 				ServerPort) {}
 		};
-		return (InstanceObject = std::make_unique<EnableMakeUnique>(
+		return (InstanceObject = make_unique<EnableMakeUnique>(
 			ServerName,
 			ServerPort)).get();
 	}
@@ -123,7 +125,7 @@ public:
 
 		SsLog("Checking for input and handling messages\n");
 		long Result = 0;
-		auto PacketBuffer = std::make_unique<char[]>(PACKET_BUFFER_SIZE);
+		auto PacketBuffer = make_unique<char[]>(PACKET_BUFFER_SIZE);
 		do {
 			Result = recv(GameServer,
 				PacketBuffer.get(),
@@ -210,7 +212,7 @@ private:
 			.ai_protocol = IPPROTO_TCP
 		};
 		auto Result = getaddrinfo(
-			NULL,
+			ServerName,
 			PortNumber,
 			&AddressHints,
 			&ServerInformation);
@@ -275,6 +277,5 @@ private:
 	bool      SocketAttached = false;
 	addrinfo* ServerInformation = nullptr;
 
-	static std::unique_ptr<ServerIoController> InstanceObject;
+	static inline unique_ptr<ServerIoController> InstanceObject;
 };
-std::unique_ptr<ServerIoController> ServerIoController::InstanceObject;

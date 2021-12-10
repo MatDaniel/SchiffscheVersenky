@@ -3,14 +3,17 @@
 // and manages them in a multiplexed independent asynchronous manner
 module;
 
-#include <ShipSock.h>
+#include <SharedLegacy.h>
 #include <memory>
 #include <vector>
 
 export module NetworkIoControl;
+import ShipSock;
+using namespace std;
 
 
 
+export spdlogger ServerLog;
 export class NetWorkIoControl;
 
 export class ClientController {
@@ -23,11 +26,14 @@ public:
 	bool operator==(
 		const ClientController* Rhs
 		) const {
+
 		return this == Rhs;
 	}	
 
 private:
-	ClientController(size_t InformationSize) 
+	ClientController(
+		size_t InformationSize
+	) 
 		: ClientInfoSize(InformationSize) {}
 
 	SOCKET   AssociatedClient;
@@ -73,8 +79,6 @@ public:
 	static NetWorkIoControl* CreateSingletonOverride(
 		const char* ServerPort
 	) {
-		SsLog("NetworkIoCtl Factory called, creating NetworkObject");
-
 		// Magic fuckery cause make_unique cannot normally access a private constructor
 		struct EnableMakeUnique : public NetWorkIoControl {
 			inline EnableMakeUnique(
@@ -82,18 +86,23 @@ public:
 			) : NetWorkIoControl(
 				ServerPort) {}
 		};
-		return (InstanceObject = std::make_unique<EnableMakeUnique>(ServerPort)).get();
+
+		InstanceObject = make_unique<EnableMakeUnique>(ServerPort);
+		ServerLog->info("Factory created NetworkIoCtl object at {}",
+			(void*)InstanceObject.get());
+		return InstanceObject.get();
 	}
 	static NetWorkIoControl* GetInstance() {
 		return InstanceObject.get();
 	}
 
 	~NetWorkIoControl() {
-		SsLog("Destructor of NetworkIoControl called!\n"
-			"Cleaning up internal server structures\n");
+		ServerLog->info("Network manager destroyed, cleaning up sockets");
 	}
-	NetWorkIoControl(const NetWorkIoControl&) = delete;
-	NetWorkIoControl& operator=(const NetWorkIoControl&) = delete;
+	NetWorkIoControl(
+		const NetWorkIoControl&) = delete;
+	NetWorkIoControl& operator=(
+		const NetWorkIoControl&) = delete;
 
 
 
@@ -109,14 +118,13 @@ public:
 			SocketDescriptorTable.data(),
 			SocketDescriptorTable.size(),
 			Timeout);
-		if (SsAssert(Result <= 0,
-			"WSAPoll failed to query socket states with: %d\n",
-			WSAGetLastError()))
-			return Result;
-
-		SsLog("Dispatching to notified socket commands\n");
+		if (Result <= 0)
+			return ServerLog->error("WSAPoll failed to query socket states with: {}",
+				WSAGetLastError()), Result;
+		
 		for (auto i = 0; i < SocketDescriptorTable.size(); ++i) {
 
+			// Network request factory helper
 			auto BuildNetworkRequest = [this](
 				SOCKET                               SocketDescriptor,
 				IoRequestPacket::IoServiceRoutineCtl IoControlCode
@@ -137,19 +145,12 @@ public:
 			auto ReturnEvent = SocketDescriptorTable[i].revents;
 			if (!ReturnEvent)
 				continue;
-			if (ReturnEvent & POLLERR) {
+			
+			if (ReturnEvent & POLLERR)
+				return ServerLog->error("WSA error on socket [{:04x}]",
+					SocketDescriptorTable[i].fd), -4;
 
-				SsAssert(1,
-					"an error occured on socket [%p:%p] with: %d\n",
-					SocketDescriptorTable[i].fd,
-					&SocketDescriptorTable[i],
-					WSAGetLastError());
-				return -4;
-			}
 			if (ReturnEvent & POLLHUP) {
-
-				SsLog("Socket [%p] disconnected from server\n",
-					SocketDescriptorTable[i].fd);
 
 				// Notify endpoint of disconnect
 				auto NetworkRequest = BuildNetworkRequest(SocketDescriptorTable[i].fd,
@@ -162,28 +163,26 @@ public:
 				// Removing client from entry list
 				if (auto Associate = NetworkRequest.OptionalClient)
 					ConnectedClients.erase(
-						std::find(
+						find(
 							ConnectedClients.begin(),
 							ConnectedClients.end(),
 							Associate));
 				SocketDescriptorTable.erase(
 					SocketDescriptorTable.begin() + i);
 
+				ServerLog->warn("Socket [{:04x}] was disconnected from the server by request",
+					SocketDescriptorTable[i].fd);
 				return IoRequestPacket::STATUS_LIST_MODIFIED;
 			}
-			if (ReturnEvent & POLLNVAL) {
-
-				SsAssert(1,
-					"an invalid socket was specified that was not previously closed and removed from the descriptor list,\n"
-					"this indicates a server crash: [%p]\n",
-					&SocketDescriptorTable[i]);
-				return -3;
-			}
+			if (ReturnEvent & POLLNVAL)
+				return ServerLog->error("An invalid socket was specified that was not removed from the descriptor list: [{:04x}]",
+					SocketDescriptorTable[i].fd), -3;
+				
 			if (ReturnEvent & POLLRDNORM) {
 
-				SsLog("Socket [%p] is requesting to receive a packet\n",
+				ServerLog->info("Socket [{:04x}] is requesting to receive a packet",
 					SocketDescriptorTable[i].fd);
-
+	
 				auto NetworkRequest = BuildNetworkRequest(
 					SocketDescriptorTable[i].fd,
 					i ? IoRequestPacket::INCOMING_PACKET : IoRequestPacket::INCOMING_CONNECTION);
@@ -196,16 +195,19 @@ public:
 
 				switch (NetworkRequest.IoRequestStatus) {
 				case IoRequestPacket::STATUS_LIST_MODIFIED:
-					return NetworkRequest.IoRequestStatus;
+					return ServerLog->warn("Client list has been modified, iterators destroyed"),
+						NetworkRequest.IoRequestStatus;
 				}
 
 				if (NetworkRequest.IoRequestStatus < 0)
-					return NetworkRequest.IoRequestStatus;
+					return ServerLog->error("Callback failed to handle critical request [{}]", 
+						(void*)&NetworkRequest), NetworkRequest.IoRequestStatus;
 			}
 			if (ReturnEvent & POLLWRNORM) {
 
-				SsLog("Notifying callee of socket [%p] being ready for data input\n",
+				ServerLog->info("Client [{:04x}] is ready to receive data",
 					SocketDescriptorTable[i].fd);
+
 				auto NetworkRequest = BuildNetworkRequest(
 					SocketDescriptorTable[i].fd,
 					IoRequestPacket::OUTGOING_PACKET_COMPLETE);
@@ -215,35 +217,40 @@ public:
 					UserContext);
 
 				if (NetworkRequest.IoRequestStatus < 0)
-					return NetworkRequest.IoRequestStatus;
+					return ServerLog->error("Callback failed to handle critical request [{}]",
+						(void*)&NetworkRequest), NetworkRequest.IoRequestStatus;
 			}
 		}
 
-		return IoRequestPacket::STATUS_REQUEST_COMPLETED;
+		return ServerLog->info("All incoming requests have been handled successfully"),
+			IoRequestPacket::STATUS_REQUEST_COMPLETED;
 	}
 
 	void AcceptIncomingConnection(
 		IoRequestPacket& NetworkRequest
 	) {
-		SsLog("Passing through incoming connection\n");
+		// Accepting incoming connection and allocating controller
 		ClientController AcceptingClient(sizeof(ClientController::ClientInformation));
 		AcceptingClient.AssociatedClient = accept(
 			NetworkRequest.RequestingSocket,
 			&AcceptingClient.ClientInformation,
 			&AcceptingClient.ClientInfoSize);
-		if (SsAssert(AcceptingClient.AssociatedClient == INVALID_SOCKET,
-			"failed to open connection, wtf happened i have no idea: %d",
-			WSAGetLastError())) {
+		if (AcceptingClient.AssociatedClient == INVALID_SOCKET) {
 
 			NetworkRequest.IoRequestStatus = IoRequestPacket::STATUS_REQUEST_ERROR;
+			ServerLog->error("WSA accept failed to connect with {}",
+				WSAGetLastError());
 			return;
 		}
 
+		// Adding client to local client list and socket descriptor table
 		ConnectedClients.emplace_back(AcceptingClient);
 		SocketDescriptorTable.emplace_back(WSAPOLLFD{
 			.fd = AcceptingClient.AssociatedClient,
 			.events = POLLIN });
 		NetworkRequest.IoRequestStatus = IoRequestPacket::STATUS_LIST_MODIFIED;
+		ServerLog->info("Client on socket [{:04x}] was sucessfully connected",
+			AcceptingClient.AssociatedClient);
 	}
 	SOCKET GetServerSocketHandle() {
 		return LocalServerSocket;
@@ -253,8 +260,6 @@ private:
 	NetWorkIoControl(
 		const char* PortNumber
 	) {
-		SsLog("Preparing internal server structures for async IO operation\n"
-			"Retrieving portnumber information for localhost\n");
 		addrinfo* ServerInformation,
 			AddressHints{};
 		AddressHints.ai_flags = AI_PASSIVE;
@@ -266,13 +271,11 @@ private:
 			PortNumber,
 			&AddressHints,
 			&ServerInformation);
-		if (SsAssert(Result,
-			"failes to retieve portinfo on \"%s\" with: %d\n",
-			PortNumber,
-			Result))
-			throw -1;
+		if (Result)
+			throw (ServerLog->error("Failed to retreive port information for {} with {}",
+				PortNumber, Result), -1);
+		ServerLog->info("Retrieved port information for {}", PortNumber);
 
-		SsLog("Creating gamesever and binding ports\n");
 		auto ServerInformationIterator = ServerInformation;
 		do {
 			LocalServerSocket = socket(
@@ -281,50 +284,43 @@ private:
 				ServerInformationIterator->ai_protocol);
 		} while (LocalServerSocket == INVALID_SOCKET &&
 			(ServerInformationIterator = ServerInformationIterator->ai_next));
-		if (SsAssert(LocalServerSocket == INVALID_SOCKET,
-			"failed to create socked with: %d\n",
-			WSAGetLastError())) {
+		if (LocalServerSocket == INVALID_SOCKET)
+			throw (freeaddrinfo(ServerInformation),
+			ServerLog->error("failed to create socket for client with {}",
+				WSAGetLastError()), -2);
+		ServerLog->info("Created socket [{:04x}] for network manager", LocalServerSocket);
 
-			freeaddrinfo(ServerInformation);
-			throw -2;
-		}
-
-		Result = bind(
+		Result = ::bind(
 			LocalServerSocket,
 			ServerInformationIterator->ai_addr,
 			ServerInformationIterator->ai_addrlen);
 		freeaddrinfo(ServerInformation);
 		ServerInformation = nullptr;
-		if (SsAssert(Result,
-			"failed to bind socket to port \"%s\", with: %d\n",
-			PortNumber,
-			WSAGetLastError())) {
+		if (Result == SOCKET_ERROR)
+			throw (closesocket(LocalServerSocket),
+			ServerLog->error("failed to bind port {} on socket [{:04x}] with {}",
+				PortNumber, LocalServerSocket, WSAGetLastError()), -3);
+		ServerLog->info("Bound port {} to socket [{:04x}]",
+			PortNumber, LocalServerSocket);
 
-			closesocket(LocalServerSocket);
-			throw -3;
-		}
-
-		SsLog("Starting to listen to incoming requests, passively\n");
 		Result = listen(
 			LocalServerSocket,
 			SOMAXCONN);
-		if (SsAssert(Result,
-			"failed to initilize listening queue with: %d\n",
-			WSAGetLastError())) {
-
-			closesocket(LocalServerSocket);
-			throw -4;
-		}
+		if (Result == SOCKET_ERROR)
+			throw (closesocket(LocalServerSocket),
+				ServerLog->error("Failed to switch socket [{:04x}] to listening mode with {}",
+					LocalServerSocket, WSAGetLastError()), -4);
 
 		SocketDescriptorTable.emplace_back(WSAPOLLFD{
 			.fd = LocalServerSocket,
 			.events = POLLIN });
+		ServerLog->info("Created network manager object successfully on socket [{:04x}:{}]",
+			LocalServerSocket, PortNumber);
 	}
 
-	SOCKET                        LocalServerSocket = INVALID_SOCKET;
-	std::vector<ClientController> ConnectedClients;
-	std::vector<WSAPOLLFD>        SocketDescriptorTable;
+	SOCKET                   LocalServerSocket = INVALID_SOCKET;
+	vector<ClientController> ConnectedClients;
+	vector<WSAPOLLFD>        SocketDescriptorTable;
 
-	static std::unique_ptr<NetWorkIoControl> InstanceObject;
+	static inline unique_ptr<NetWorkIoControl> InstanceObject;
 };
-std::unique_ptr<NetWorkIoControl> NetWorkIoControl::InstanceObject;
