@@ -82,7 +82,7 @@ public:
 				for (auto x = -1; x < 1; ++x) {
 
 					// Check for illegal placement and skip invalid addresses outside of frame
-					GeneralCords::FieldCoordinate LookupLocation{
+					FieldCoordinate LookupLocation{
 						.XCord = (uint8_t)(IteratorPosition.XCord + x),
 						.YCord = (uint8_t)(IteratorPosition.YCord + y),
 					};
@@ -111,7 +111,7 @@ public:
 	}
 
 	ShipState* GetShipEntryForCordinate(
-		GeneralCords::FieldCoordinate Cordinates
+		FieldCoordinate Cordinates
 	) {
 		// Enumerate all current valid ships and test all calculated cords of their parts against requested cords
 		for (auto& ShipEntry : FieldShipStates) {
@@ -135,7 +135,7 @@ public:
 	}
 
 	CellState StrikeCellAndUpdateShipList(
-		GeneralCords::FieldCoordinate Coordinates
+		FieldCoordinate Coordinates
 	) {
 		// Test and shoot cell in grid
 		auto& LocalCell = GetCellReferenceByCoordinates(Coordinates);
@@ -165,7 +165,7 @@ public:
 	}
 
 private:
-	GeneralCords::FieldCoordinate CalculateCordinatesOfPartByDistanceWithShip(
+	FieldCoordinate CalculateCordinatesOfPartByDistanceWithShip(
 		const ShipState& BaseShipData,
 		      uint8_t    DistanceToWalk
 	) const {
@@ -180,12 +180,12 @@ private:
 	}
 
 	CellState& GetCellReferenceByCoordinates(
-		const GeneralCords::FieldCoordinate Cordinates
+		const FieldCoordinate Cordinates
 	) const {
 		return FieldCellStates[Cordinates.YCord * FieldDimensions.XDimension + Cordinates.XCord];
 	}
 
-	GeneralCords::FieldDimension FieldDimensions;
+	FieldDimension FieldDimensions;
 	CellState*                   FieldCellStates;
 
 	ShipCount         NumberOfShipsPerType;
@@ -242,8 +242,6 @@ private:
 		: RemotePlayers{ { XDimension, YDimension, NumberOfShips },
 	                     { XDimension, YDimension, NumberOfShips } } {}
 	PlayerField RemotePlayers[2];
-
-
 
 	static inline unique_ptr<GameManagmentController> InstanceObject;
 };

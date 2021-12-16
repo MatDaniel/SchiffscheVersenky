@@ -25,35 +25,18 @@ export enum ShipRotation {
 	FACING_WEST = 3
 };
 
-export union GeneralCords {
-	struct FieldDimension {
-		uint8_t XDimension,
-			YDimension;
-	} FieldDimensions;
-	struct FieldCoordinate {
-		uint8_t XCord,
-			YCord;
-	} FieldCordinates;
+export struct FieldDimension {
+	uint8_t XDimension,
+		YDimension;
 };
-
+export struct FieldCoordinate {
+	uint8_t XCord,
+		YCord;
+};
 
 // Sub packets
 export struct ShipCount {
 	uint8_t ShipCounts[5]{}; // Use enum ShipClass as an index to get the appropriate count associated to type
-
-	ShipCount() = default;
-	inline ShipCount(const ShipCount& Object) {
-		*this = Object;
-	}
-
-	ShipCount& operator=(const ShipCount& Rhs) {
-		return memcpy(ShipCounts,
-			Rhs.ShipCounts,
-			sizeof(ShipCounts)), * this;
-	}
-	ShipCount& operator=(const ShipCount&& Rhs) {
-		return *this = Rhs;
-	}
 
 	uint8_t GetTotalCount() const {
 		auto TotalCount = 0;
@@ -67,7 +50,7 @@ export struct ShipState {
 	ShipClass ShipType;
 
 	// The cords of the ship always specify the location of the front
-	GeneralCords::FieldCoordinate Cordinates;
+	FieldCoordinate Cordinates;
 
 	ShipRotation Rotation;
 	bool         Destroyed;

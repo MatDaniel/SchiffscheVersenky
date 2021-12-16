@@ -8,56 +8,99 @@ import GameManagment;
 extern spdlogger GameLog;
 extern spdlogger ServerLog;
 spdlogger LayerLog;
+using namespace std;
 
 
-
-void NetworkDispatchTest(
-	NetWorkIoControl&                  NetworkDevice,
-	NetWorkIoControl::IoRequestPacket& NetworkRequest,
-	void*                              UserContext
+struct IoDispatchUserContext {
+	GameManagmentController* GameManagerQuickRef;
+};
+void ServerManagmentDispatchRoutine(
+	NetWorkIoControl& NetworkDevice,
+	IoRequestPacket&  NetworkRequest,
+	void*             UserContext
 ) {
 	switch (NetworkRequest.IoControlCode) {
-	case NetWorkIoControl::IoRequestPacket::INCOMING_CONNECTION:
-		NetworkDevice.AcceptIncomingConnection(NetworkRequest);
+	case IoRequestPacket::INCOMING_CONNECTION:
+	{
+		LayerLog->info("Incoming connection requested, adding client");
+		auto NewClient = NetworkDevice.AcceptIncomingConnection(NetworkRequest);
+		if (!NewClient) {
+
+			LayerLog->error("Socket failed to accept remote client");
+			return; // Fatal dispatch exit
+		}
+
+		if (NetworkDevice.GetNumberOfConnectedClients() >= 2) {
+			
+			// we would need to inform the connecting client of all the current states etc 
+			LayerLog->info("There are already 2 connected players, may only accept viewers now (to be implemented)");
+
+
+
+			NetworkRequest.IoRequestStatus = IoRequestPacket::STATUS_REQUEST_COMPLETED;
+			break; // Skip further handling
+		}
+
+		// we now need to notify the game manager of the connecting player
+
+		auto GameManager = GameManagmentController::GetInstance();
+
+
+	}
 		break;
 
-	case NetWorkIoControl::IoRequestPacket::INCOMING_PACKET:
+	case IoRequestPacket::INCOMING_PACKET:
 	{
-		auto PacketBuffer = std::make_unique<char[]>(PACKET_BUFFER_SIZE);
+		auto PacketBuffer = make_unique<char[]>(PACKET_BUFFER_SIZE);
 		auto Result = recv(NetworkRequest.RequestingSocket,
 			PacketBuffer.get(),
 			PACKET_BUFFER_SIZE,
 			0);
+		LayerLog->info("Incoming packet request, read input: {}", Result);
 		
 		switch (Result) {
 		case SOCKET_ERROR:
-			NetworkRequest.IoRequestStatus = NetWorkIoControl::IoRequestPacket::STATUS_REQUEST_ERROR;
-			ServerLog->error("fatal on receive on requesting socket[{:04x}], {}",
+			NetworkRequest.IoRequestStatus = IoRequestPacket::STATUS_REQUEST_ERROR;
+			LayerLog->error("fatal on receive on requesting socket[{:04x}], {}",
 				NetworkRequest.RequestingSocket, WSAGetLastError());
 			break;
 
 		case 0:
-			NetworkRequest.IoRequestStatus = NetWorkIoControl::IoRequestPacket::STATUS_REQUEST_IGNORED;
-			ServerLog->warn("Socket [{:04x}] was gracefully disconnected", NetworkRequest.RequestingSocket);
+			NetworkRequest.IoRequestStatus = IoRequestPacket::STATUS_REQUEST_IGNORED;
+			LayerLog->warn("Socket [{:04x}] was gracefully disconnected",
+				NetworkRequest.RequestingSocket);
 			break;
 
 		default:
 			// Request has to be handled here
 
+			auto IoPacket = (ShipSockControl*)PacketBuffer.get();
+
+			switch (IoPacket->ControlCode)
+			{
+			case ShipSockControl::NO_COMMAND:
+				LayerLog->warn("Debug NO_COMMAND received");
 
 
-			NetworkRequest.IoRequestStatus = NetWorkIoControl::IoRequestPacket::STATUS_REQUEST_COMPLETED;
+			default:
+				break;
+			}
+
+
+
+			NetworkRequest.IoRequestStatus = IoRequestPacket::STATUS_REQUEST_COMPLETED;
 		}
 	}
 		break;
 
-	case NetWorkIoControl::IoRequestPacket::SOCKET_DISCONNECTED:
-		NetworkRequest.IoRequestStatus = NetWorkIoControl::IoRequestPacket::STATUS_REQUEST_COMPLETED;
-		ServerLog->warn("Socket [{:04x}] was gracefully disconnected", NetworkRequest.RequestingSocket);
+	case IoRequestPacket::SOCKET_DISCONNECTED:
+		NetworkRequest.IoRequestStatus = IoRequestPacket::STATUS_REQUEST_COMPLETED;
+		LayerLog->warn("Socket [{:04x}] was gracefully disconnected", 
+			NetworkRequest.RequestingSocket);
 		break;
 
 	default:
-		ServerLog->warn("Io request left untreated, fatal");
+		LayerLog->warn("Io request left untreated, fatal");
 	}
 }
 
@@ -79,18 +122,19 @@ int main(
 	
 
 
-		// Creating network manager
+		// Creating and initilizing network managers
 		auto& ShipSocketObject = *NetWorkIoControl::CreateSingletonOverride(PortNumber);
+		ShipCount Ships{ 2,2,2,2,2 };
+		auto& ShipGameObject = *GameManagmentController::CreateSingletonOverride(6, 6, Ships);
 		
-		SsLog("Starting to accept arbitrary requests and setting up worker threads for possible clients");
+		LayerLog->info("Entering server management mode, ready for IO");
 		for (;;) {
 			Result = ShipSocketObject.PollNetworkConnectionsAndDispatchCallbacks(
-				NetworkDispatchTest,
+				ServerManagmentDispatchRoutine,
 				nullptr);
-			if (SsAssert(Result < 0,
-				"NetworkManager failed to execute properly -> shuting down server : %d\n",
-				Result))
-				return EXIT_FAILURE;
+			if (Result < 0)
+				return LayerLog->error("An error with id:{} ocured on in the callback dispatch routine",
+					Result), EXIT_FAILURE;
 		}
 	}
 	catch (const spdlog::spdlog_ex& Exception) {
@@ -102,12 +146,15 @@ int main(
 	}
 	catch (const int& ExceptionCode) {
 		
-		SsAssert(1,
-			"critical failure, invalid socket escaped constructor: %d\n",
-			ExceptionCode);
+		LayerLog->error("A critical Exception code was thrown, {}", ExceptionCode);
+		return EXIT_FAILURE;
+	}
+	catch (...) {
+
+		LayerLog->error("An unknown exception was thrown, unable to handle");
 		return EXIT_FAILURE;
 	}
 
-	SsLog("Shutting down Server");
+	LayerLog->info("Server successfully terminated, shutting down and good night :D");
 	return EXIT_SUCCESS;
 }

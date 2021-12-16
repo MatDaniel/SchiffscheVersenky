@@ -19,10 +19,9 @@ export class NetWorkIoControl;
 export class ClientController {
 	friend NetWorkIoControl;
 public:
-	SOCKET GetSocket() const {
-		return AssociatedClient;
+	~ClientController() {
+		ServerLog->info("Client controller has been closed");
 	}
-
 	bool operator==(
 		const ClientController* Rhs
 		) const {
@@ -30,51 +29,50 @@ public:
 		return this == Rhs;
 	}	
 
-private:
-	ClientController(
-		size_t InformationSize
-	) 
-		: ClientInfoSize(InformationSize) {}
+	SOCKET GetSocket() const {
+		return AssociatedClient;
+	}
 
+private:
 	SOCKET   AssociatedClient;
 	sockaddr ClientInformation;
-	int32_t  ClientInfoSize;
+	int32_t  ClientInfoSize = sizeof(ClientInformation);
 };
 
-class NetWorkIoControl
+export struct IoRequestPacket {
+	enum IoServiceRoutineCtl {           // a control code specifying the type of handling required
+		NO_COMMAND,                      // reserved for @Lima, dont use
+		INCOMING_CONNECTION,
+		INCOMING_PACKET,
+		INCOMING_PACKET_PRIORITIZED,
+		OUTGOING_PACKET_COMPLETE,
+		SOCKET_DISCONNECTED,
+		SERVICE_ERROR_DETECTED,
+	}                 IoControlCode;
+	SOCKET            RequestingSocket; // the socket which was responsible for the incoming request
+	ClientController* OptionalClient;   // an optional pointer set by the NetworkManager to the client responsible for the request,
+										// on accept this will contain the information about the connecting client the callback can decide to accept the connection
+
+	enum IoRequestStatusType {      // describes the current state of this network request packet,
+									// the callback has to set it correctly depending on what it did with the request
+		STATUS_REQUEST_ERROR = -3,
+		STATUS_REQUEST_NOT_HANDLED = -2,
+		INVALID_STATUS = -1,
+		STATUS_REQUEST_COMPLETED = 0,
+		STATUS_REQUEST_IGNORED = 1,
+		STATUS_LIST_MODIFIED = 2
+	} IoRequestStatus;
+};
+
+
+export class NetWorkIoControl
 	: private SocketWrap {
 public:
-	struct IoRequestPacket {
-		enum IoServiceRoutineCtl {           // a control code specifying the type of handling required
-			NO_COMMAND,                      // reserved for @Lima, dont use
-			INCOMING_CONNECTION,
-			INCOMING_PACKET,
-			INCOMING_PACKET_PRIORITIZED,
-			OUTGOING_PACKET_COMPLETE,
-			SOCKET_DISCONNECTED,
-			SERVICE_ERROR_DETECTED,
-		}                 IoControlCode;
-		SOCKET            RequestingSocket; // the socket which was responsible for the incoming request
-		ClientController* OptionalClient;   // an optional pointer set by the NetworkManager to the client responsible for the request,
-											// on accept this will contain the information about the connecting client the callback can decide to accept the connection
-
-		enum IoRequestStatusType {      // describes the current state of this network request packet,
-										// the callback has to set it correctly depending on what it did with the request
-			STATUS_REQUEST_ERROR = -3,
-			STATUS_REQUEST_NOT_HANDLED = -2,
-			INVALID_STATUS = -1,
-			STATUS_REQUEST_COMPLETED = 0,
-			STATUS_REQUEST_IGNORED = 1,
-			STATUS_LIST_MODIFIED = 2
-		} IoRequestStatus;
-	};
 	typedef void (*MajorFunction)(        // this has to handle the networking requests being both capable of reading and sending requests
 		NetWorkIoControl& NetworkDevice,  // a pointer to the NetWorkIoController responsible of said request packet
 		IoRequestPacket& NetworkRequest, // a pointer to a network request packet describing the current request
 		void* UserContext     // A pointer to caller defined data thats forwarded to the callback in every call, could be the GameManager class or whatever
 		);
-
-
 
 	static NetWorkIoControl* CreateSingletonOverride(
 		const char* ServerPort
@@ -163,10 +161,7 @@ public:
 				// Removing client from entry list
 				if (auto Associate = NetworkRequest.OptionalClient)
 					ConnectedClients.erase(
-						find(
-							ConnectedClients.begin(),
-							ConnectedClients.end(),
-							Associate));
+						Associate - ConnectedClients.data() + ConnectedClients.begin());
 				SocketDescriptorTable.erase(
 					SocketDescriptorTable.begin() + i);
 
@@ -226,50 +221,56 @@ public:
 			IoRequestPacket::STATUS_REQUEST_COMPLETED;
 	}
 
-	void AcceptIncomingConnection(
-		IoRequestPacket& NetworkRequest
+	ClientController* AcceptIncomingConnection( // Accepts an incoming connection and allocates the client,
+	                                            // if successful invalidates all references to existing clients
+	                                            // This provides default request handling, RequestStatus modified
+		IoRequestPacket& NetworkRequest         // The NetworkRequest to apply accept handling on
 	) {
 		// Accepting incoming connection and allocating controller
-		ClientController AcceptingClient(sizeof(ClientController::ClientInformation));
-		AcceptingClient.AssociatedClient = accept(
+		ClientController ConnectingClient;
+		ConnectingClient.AssociatedClient = accept(
 			NetworkRequest.RequestingSocket,
-			&AcceptingClient.ClientInformation,
-			&AcceptingClient.ClientInfoSize);
-		if (AcceptingClient.AssociatedClient == INVALID_SOCKET) {
-
-			NetworkRequest.IoRequestStatus = IoRequestPacket::STATUS_REQUEST_ERROR;
-			ServerLog->error("WSA accept failed to connect with {}",
-				WSAGetLastError());
-			return;
-		}
+			&ConnectingClient.ClientInformation,
+			&ConnectingClient.ClientInfoSize);
+		if (ConnectingClient.AssociatedClient == INVALID_SOCKET)
+			return NetworkRequest.IoRequestStatus = IoRequestPacket::STATUS_REQUEST_ERROR,
+				ServerLog->error("WSA accept failed to connect with {}",
+					WSAGetLastError()),
+				nullptr;
+		ServerLog->info("Accepted client connection");
 
 		// Adding client to local client list and socket descriptor table
-		ConnectedClients.emplace_back(AcceptingClient);
+		auto ClientAddress = &ConnectedClients.emplace_back(ConnectingClient);
 		SocketDescriptorTable.emplace_back(WSAPOLLFD{
-			.fd = AcceptingClient.AssociatedClient,
+			.fd = ConnectingClient.AssociatedClient,
 			.events = POLLIN });
 		NetworkRequest.IoRequestStatus = IoRequestPacket::STATUS_LIST_MODIFIED;
 		ServerLog->info("Client on socket [{:04x}] was sucessfully connected",
-			AcceptingClient.AssociatedClient);
+			ConnectingClient.AssociatedClient);
+		return ClientAddress;
 	}
 	SOCKET GetServerSocketHandle() {
 		return LocalServerSocket;
 	}
+	uint32_t GetNumberOfConnectedClients() {
+		return ConnectedClients.size();
+	}
+
 
 private:
 	NetWorkIoControl(
 		const char* PortNumber
 	) {
-		addrinfo* ServerInformation,
-			AddressHints{};
-		AddressHints.ai_flags = AI_PASSIVE;
-		AddressHints.ai_family = AF_INET;
-		AddressHints.ai_socktype = SOCK_STREAM;
-		AddressHints.ai_protocol = IPPROTO_TCP;
+		addrinfo* ServerInformation;
 		auto Result = getaddrinfo(
 			NULL,
 			PortNumber,
-			&AddressHints,
+			&(const addrinfo&)addrinfo{
+				.ai_flags = AI_PASSIVE,
+				.ai_family = AF_INET,
+				.ai_socktype = SOCK_STREAM,
+				.ai_protocol = IPPROTO_TCP
+			},
 			&ServerInformation);
 		if (Result)
 			throw (ServerLog->error("Failed to retreive port information for {} with {}",
