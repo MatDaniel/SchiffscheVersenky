@@ -19,6 +19,7 @@ constexpr glm::vec3 UpNormal = glm::vec3(0.0F, 1.0F, 0.0F);
 
 static Model::IndexInfo FieldSqInfo = Model::IndexInfo(0, 6);
 static Model::IndexInfo BackgroundInfo = Model::IndexInfo(6, 12);
+static glm::vec4 OceanColor(0.18F, 0.33F, 1.0F, 1.0F);
 
 uint32_t vert(std::vector<Vertex>& vertices, std::unordered_map<Vertex, uint32_t>& uniqueCache,
 	const Vertex& vert)
@@ -162,6 +163,16 @@ public:
 		// Setup border info: size
 		m_borderInfo.size = indices.size() - m_borderInfo.offset;
 
+		// Setup per instance data
+		auto fieldSqAmount = width * height;
+		
+		m_fieldSquaresColorTilt = new glm::vec4[fieldSqAmount];
+		for (size_t i = 0; i < fieldSqAmount; i++)
+			m_fieldSquaresColorTilt[i] = OceanColor;
+		
+		m_fieldSquareTransforms = new glm::mat4[fieldSqAmount];
+		setTransform(glm::mat4(1.0F));
+
 		// Upload model
 		m_model = Model(vertices, indices, parts);
 
@@ -169,11 +180,13 @@ public:
 
 	~GameField()
 	{
-		//delete m_fieldSquaresColorTilt;
+		delete[] m_fieldSquaresColorTilt;
+		delete[] m_fieldSquareTransforms;
 	}
 
-	inline void draw(SceneRenderer& renderer, const glm::mat4& transform) const noexcept
+	void draw(SceneRenderer& renderer) const noexcept
 	{
+
 		Material material
 		{
 			.pipeline = m_pipeline,
@@ -181,40 +194,68 @@ public:
 			.color_tilt = glm::vec4(1.0F, 1.0F, 1.0F, 1.0F) // White for border
 		};
 
-
 		// Render border
-		renderer.draw(transform, &m_model, m_borderInfo, material);
-
-		material.color_tilt = glm::vec4(0.18F, 0.33F, 1.0F, 1.0F); // Change material to ocean blue
+		renderer.draw(m_transform, &m_model, m_borderInfo, material);
 
 		// Render background
 		if (m_width != m_height)
-			renderer.draw(transform, &m_model, BackgroundInfo, material);
+		{
+			material.color_tilt = OceanColor; // Change material to ocean blue
+			renderer.draw(m_transform, &m_model, BackgroundInfo, material);
+		}
 
 		// Render field squares
-		auto size = m_width * m_height;
-		for (uint32_t x = 0; x < m_width; x++)
-			for (uint32_t y = 0; y < m_height; y++)
+		size_t i = 0;
+		for (uint32_t y = 0; y < m_height; y++)
+			for (uint32_t x = 0; x < m_width; x++, i++)
 			{
-
-				//material.color_tilt = m_fieldSquaresColorTilt[i]; // Change material to the set field color
-				renderer.draw(
-					glm::translate(transform, glm::vec3(
-						m_topLeftMidSqPos.y - y * m_sqaureSize,
-						0.0F,
-						m_topLeftMidSqPos.x + x * m_sqaureSize)
-					),
-					&m_model, FieldSqInfo, material
-				);
-
+				material.color_tilt = m_fieldSquaresColorTilt[i]; // Change material to the set field color
+				renderer.draw(m_fieldSquareTransforms[i],
+					&m_model, FieldSqInfo, material);
 			}
 			
+	}
+
+	void setTransform(glm::mat4 transform)
+	{
+		m_transform = transform;
+		size_t i = 0;
+		for (uint32_t y = 0; y < m_height; y++)
+			for (uint32_t x = 0; x < m_width; x++, i++)
+			{
+				m_fieldSquareTransforms[i] = glm::translate(transform, glm::vec3(
+					m_topLeftMidSqPos.y - y * m_sqaureSize,
+					0.0F,
+					m_topLeftMidSqPos.x + x * m_sqaureSize)
+				);
+			}
+	}
+
+	size_t size() const noexcept
+	{
+		return m_width * m_height;
+	}
+
+	glm::vec4& color(size_t index) noexcept
+	{
+		return m_fieldSquaresColorTilt[index];
+	}
+
+	const glm::vec4& color(size_t index) const noexcept
+	{
+		return m_fieldSquaresColorTilt[index];
+	}
+
+	size_t index(uint32_t x, uint32_t y) const noexcept
+	{
+		return m_width * y + x;
 	}
 
 private:
 
 	// Info
 	uint32_t m_width, m_height;
+	glm::mat4 m_transform;
 	
 	// The created model
 	Model m_model;
@@ -223,10 +264,10 @@ private:
 	ShaderPipeline* m_pipeline;
 	Texture* m_texture;
 
-	// TODO: Field square color data for each field
-	//       -> for highlighting fields
-	//glm::vec4* m_fieldSquaresColorTilt;
-	
+	// Field square data for each field
+	glm::vec4* m_fieldSquaresColorTilt;
+	glm::mat4* m_fieldSquareTransforms;
+
 	// Field data required for translation
 	glm::vec2 m_topLeftMidSqPos;
 	float m_sqaureSize;

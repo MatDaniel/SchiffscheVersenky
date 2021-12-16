@@ -1,13 +1,20 @@
 // Implements the start of the client
+
+// Network
 import NetworkControl;
-
-import Draw.Engine;
-import Draw.Scene;
-import Scenes.FieldSetup;
 import ShipSock;
-
 #include <SharedLegacy.h>
+
+// Drawing
+import Draw.Window;
+import Draw.Engine;
+import Draw.Resources;
+import Draw.Scene;
+import Draw.DearImGUI;
+import Scenes.FieldSetup;
+
 #include <cstdlib>
+#include <memory>
 
 void NetworkDispatchTest(
 	ServerIoController* NetworkDevice,
@@ -76,7 +83,36 @@ int main(int argc, const char* argv[])
 	*/
 
 
-	Scene::load(Scene::getter<FieldSetupScene>());
-	return Engine::run();
+	// Initialize the window
+	if (!Window::init())
+		return EXIT_FAILURE;
+
+	// Initialize the engine
+	if (!Engine::init())
+	{
+		Window::cleanUp(); // Clean up the window on failure
+		return EXIT_FAILURE;
+	}
+
+	// Initialize the gui
+	DearImGUI::init();
+
+	// Initialize the resources
+	Resources::init();
+
+	// Set entry scene
+	Scene::load(std::make_unique<FieldSetupScene>());
+
+	// Run
+	int code = Engine::run();
+
+	// Clean up
+	Scene::cleanUp();
+	Resources::cleanUp();
+	DearImGUI::cleanUp();
+	Window::cleanUp();
+
+	// Exit
+	return code;
 	
 }

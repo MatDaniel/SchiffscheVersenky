@@ -24,6 +24,8 @@ module;
 #include "util/FNVHash.hpp"
 #include "Vertex.hpp"
 
+#include "resource.h"
+
 export module Draw.Resources;
 import Draw.Renderer.Input;
 
@@ -151,39 +153,25 @@ private:
 namespace
 {
 
-    inline bool checkErrors(GLuint id)
-    {
-        GLint loglen;
-        glGetProgramiv(id, GL_INFO_LOG_LENGTH, &loglen);
-        if (loglen)
-        {
-            GLchar* info = new GLchar[loglen];
-            glGetProgramInfoLog(id, loglen, NULL, info);
-            spdlog::warn("[ShipRenderer] Errors occured compiling the shader stage: {}", info);
-            delete[] info;
-        }
-        return !loglen;
-    }
-
-    inline GLbitfield toBit(GLenum type)
-    {
-        switch (type)
-        {
+	inline GLbitfield toBit(GLenum type)
+	{
+		switch (type)
+		{
 #define SHIV_SHADERBIT(Type) \
     case Type: return Type##_BIT
-        SHIV_SHADERBIT(GL_VERTEX_SHADER);
-        SHIV_SHADERBIT(GL_FRAGMENT_SHADER);
-        SHIV_SHADERBIT(GL_GEOMETRY_SHADER);
-        SHIV_SHADERBIT(GL_TESS_CONTROL_SHADER);
-        SHIV_SHADERBIT(GL_TESS_EVALUATION_SHADER);
-        SHIV_SHADERBIT(GL_COMPUTE_SHADER);
+			SHIV_SHADERBIT(GL_VERTEX_SHADER);
+			SHIV_SHADERBIT(GL_FRAGMENT_SHADER);
+			SHIV_SHADERBIT(GL_GEOMETRY_SHADER);
+			SHIV_SHADERBIT(GL_TESS_CONTROL_SHADER);
+			SHIV_SHADERBIT(GL_TESS_EVALUATION_SHADER);
+			SHIV_SHADERBIT(GL_COMPUTE_SHADER);
 #undef SHIV_SHADERBIT
-        default:
-            spdlog::warn("[ShipRenderer] Unknown shader type of value {}, can't convert into a shader bit.", type);
-            return 0;
-        }
+		default:
+			spdlog::warn("[ShipRenderer] Unknown shader type of value {}, can't convert into a shader bit.", type);
+			return 0;
+		}
 
-    }
+	}
 
 }
 
@@ -203,7 +191,7 @@ public:
         auto code = res.str();
         auto codes = code.c_str();
         m_id = glCreateShaderProgramv(type, 1, &codes);
-        if (checkErrors(m_id) && type == GL_FRAGMENT_SHADER)
+        if (type == GL_FRAGMENT_SHADER)
             glProgramUniform1i(m_id, TEXTURE_LOCATION, 0);
     }
 
@@ -958,3 +946,44 @@ export inline bool operator==(const Model::IndexInfo& lhs, const Model::IndexInf
 }
 
 export SHIV_FNV_HASH(Model::IndexInfo)
+
+// -- Resource Store: Lifecycle --
+// This will initialize all resources or clean up them
+// depending on which methods are called.
+
+export namespace Resources
+{
+
+	void init()
+	{
+
+		// Shader Stages
+		auto* cel_vert = Resources::emplace<ShaderStage>("VERT:Cel", GL_VERTEX_SHADER, Resource(IDR_VSHA_CEL));
+		auto* cel_frag = Resources::emplace<ShaderStage>("FRAG:Cel", GL_FRAGMENT_SHADER, Resource(IDR_FSHA_CEL));
+
+		// Shader Pipelines
+		auto* cel_prog = Resources::emplace<ShaderPipeline>("Cel", cel_vert, cel_frag);
+
+		// Texture
+		constexpr char dummy_texdata[3]{ 0, 0, 0 };
+		auto* dummy_tex = Resources::emplace<Texture>("Dummy", 3, 1, 1, &dummy_texdata);
+
+		// Materials
+		Resources::emplace<Material>("Border", cel_prog, dummy_tex, glm::vec4(1.0F, 1.0F, 1.0F, 1.0F));
+		Resources::emplace<Material>("Water", cel_prog, dummy_tex, glm::vec4(0.18F, 0.33F, 1.0F, 1.0F));
+
+		// Models
+		Resources::emplace<Model>("Teapot", Resource(IDR_MESH_TEAPOT));
+
+	}
+
+	void cleanUp()
+	{
+		Resources::clear<Model>();
+		Resources::clear<Material>();
+		Resources::clear<ShaderPipeline>();
+		Resources::clear<ShaderStage>();
+		Resources::clear<Texture>();
+	}
+
+}

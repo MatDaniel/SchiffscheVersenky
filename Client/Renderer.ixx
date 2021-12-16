@@ -21,6 +21,8 @@ import Draw.Renderer.Input;
 import Draw.Resources;
 import Draw.Buffers;
 import Draw.Engine;
+import Draw.Window;
+import Draw.Timings;
 
 // -- Camera --
 // Contains info of the position and orientation of the camera.
@@ -151,7 +153,7 @@ public:
 		constexpr float NEAR_PLANE = 0.1F;
 		constexpr float FAR_PLANE = 1000.0F;
 
-		const glm::vec2 size = Engine::windowSize();
+		const glm::vec2 size = Window::Properties::windowSize();
 		const size_t type = m_info.projection.index();
 
 		// Exit if window is minimized
@@ -207,7 +209,7 @@ public:
 		m_currentFrameBuf = (m_currentFrameBuf + 1) % 2;
 
 		// Bind SceneUBO
-		m_currentUbo.time = Engine::time();
+		m_currentUbo.time = Timings::time();
 		*m_uboBufs[m_currentFrameBuf].ptr() = m_currentUbo;
 		glBindBufferBase(GL_UNIFORM_BUFFER, 0, m_uboBufs[m_currentFrameBuf].id());
 

@@ -17,8 +17,7 @@ export class FieldSetupScene final : public Scene
 {
 public:
 
-	inline FieldSetupScene()
-		: renderer()
+	void onInit() override
 	{
 
 		auto& info = renderer.info();
@@ -31,7 +30,7 @@ public:
 		};
 
 		// Set projection
-		info.projection = OrthoProjection {
+		info.projection = OrthoProjection{
 			.height = 22.0F
 		};
 
@@ -39,9 +38,15 @@ public:
 		renderer.uploadCamera();
 		renderer.uploadProjection();
 
+		// Setup game field
+		gameField.setTransform(glm::scale(glm::mat4(1.0F), glm::vec3(21.0F, 0.0F, 21.0F)));
+		gameField.color(gameField.index(3, 3)) = glm::vec4(1.0F, 0.0F, 0.0F, 1.0F);
+		gameField.color(gameField.index(9, 9)) = glm::vec4(0.0F, 1.0F, 0.0F, 1.0F);
+		gameField.color(gameField.index(12, 3)) = glm::vec4(0.0F, 0.0F, 0.0F, 1.0F);
+
 	}
 
-	void update() override
+	void onDraw() override
 	{
 		// Clear screen
 		//--------------
@@ -49,11 +54,7 @@ public:
 		glClearColor(0.8F, 0.2F, 0.1F, 1.0F);
 		glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
-		gameField.draw(
-			renderer,
-			glm::scale(glm::mat4(1.0F), glm::vec3(21.0F, 0.0F, 21.0F))
-		);
-
+		gameField.draw(renderer);
 		renderer.render();
 
 	}
@@ -69,6 +70,6 @@ private:
 	SceneRenderer renderer;
 
 	// Resources
-	GameField gameField { 10, 10 };
+	GameField gameField { 12, 12 };
 	
 };

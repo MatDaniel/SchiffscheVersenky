@@ -25,6 +25,15 @@
     <Filter Include="Source Files\GameObjects">
       <UniqueIdentifier>{867b37e0-c94a-4c8f-951f-1f224b80294e}</UniqueIdentifier>
     </Filter>
+    <Filter Include="Source Files\State">
+      <UniqueIdentifier>{31b80b73-7982-4568-945a-7bcb0b1cb636}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Source Files\Utility">
+      <UniqueIdentifier>{0c306d0e-a230-464b-9575-e1bf75552bcc}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Source Files\Scenes">
+      <UniqueIdentifier>{b23326fd-c40c-4c39-be37-60cec3e884a5}</UniqueIdentifier>
+    </Filter>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="impl\imguiimpl.cpp">
@@ -36,35 +45,44 @@
     <ClCompile Include="impl\miscimpl.cpp">
       <Filter>Source Files\Implementations</Filter>
     </ClCompile>
-    <ClCompile Include="Buffers.ixx">
-      <Filter>Source Files</Filter>
-    </ClCompile>
-    <ClCompile Include="Engine.ixx">
-      <Filter>Source Files</Filter>
-    </ClCompile>
     <ClCompile Include="NetworkCb.ixx">
-      <Filter>Source Files</Filter>
-    </ClCompile>
-    <ClCompile Include="Resources.ixx">
-      <Filter>Source Files</Filter>
-    </ClCompile>
-    <ClCompile Include="Renderer.ixx">
-      <Filter>Source Files</Filter>
-    </ClCompile>
-    <ClCompile Include="Scene.ixx">
-      <Filter>Source Files</Filter>
-    </ClCompile>
-    <ClCompile Include="scenes\FieldSetupScene.ixx">
       <Filter>Source Files</Filter>
     </ClCompile>
     <ClCompile Include="EntryPoint.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="RendererInput.ixx">
-      <Filter>Source Files</Filter>
-    </ClCompile>
     <ClCompile Include="GameField.ixx">
       <Filter>Source Files\GameObjects</Filter>
+    </ClCompile>
+    <ClCompile Include="Window.ixx">
+      <Filter>Source Files\State</Filter>
+    </ClCompile>
+    <ClCompile Include="Timings.ixx">
+      <Filter>Source Files\State</Filter>
+    </ClCompile>
+    <ClCompile Include="Scene.ixx">
+      <Filter>Source Files\State</Filter>
+    </ClCompile>
+    <ClCompile Include="Resources.ixx">
+      <Filter>Source Files\State</Filter>
+    </ClCompile>
+    <ClCompile Include="DearImGUI.ixx">
+      <Filter>Source Files\State</Filter>
+    </ClCompile>
+    <ClCompile Include="Engine.ixx">
+      <Filter>Source Files\State</Filter>
+    </ClCompile>
+    <ClCompile Include="Renderer.ixx">
+      <Filter>Source Files\Utility</Filter>
+    </ClCompile>
+    <ClCompile Include="RendererInput.ixx">
+      <Filter>Source Files\Utility</Filter>
+    </ClCompile>
+    <ClCompile Include="Buffers.ixx">
+      <Filter>Source Files\Utility</Filter>
+    </ClCompile>
+    <ClCompile Include="scenes\FieldSetupScene.ixx">
+      <Filter>Source Files\Scenes</Filter>
     </ClCompile>
   </ItemGroup>
   <ItemGroup>

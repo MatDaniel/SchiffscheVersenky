@@ -58,7 +58,7 @@
       <SDLCheck>true</SDLCheck>
       <PreprocessorDefinitions>_DEBUG;_CONSOLE;_CRT_SECURE_NO_WARNINGS;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <ConformanceMode>true</ConformanceMode>
-      <AdditionalIncludeDirectories>$(SolutionDir)3rdparty\glad_dbg\include;$(SolutionDir)3rdparty\glfw\include;$(SolutionDir)3rdparty\glm;$(SolutionDir)3rdparty\imgui;$(SolutionDir)3rdparty\imgui\backends;$(SolutionDir)3rdparty\spdlog\include;$(SolutionDir)3rdparty\stb;$(SolutionDir)3rdparty\tinyobjloader;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>$(SolutionDir)3rdparty\glad_rel\include;$(SolutionDir)3rdparty\glfw\include;$(SolutionDir)3rdparty\glm;$(SolutionDir)3rdparty\imgui;$(SolutionDir)3rdparty\imgui\backends;$(SolutionDir)3rdparty\spdlog\include;$(SolutionDir)3rdparty\stb;$(SolutionDir)3rdparty\tinyobjloader;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <LanguageStandard>stdcpp20</LanguageStandard>
       <AdditionalOptions>
       </AdditionalOptions>
@@ -101,6 +101,7 @@
     <ClCompile Include="Engine.ixx" />
     <ClCompile Include="EntryPoint.cpp" />
     <ClCompile Include="GameField.ixx" />
+    <ClCompile Include="DearImGUI.ixx" />
     <ClCompile Include="scenes\FieldSetupScene.ixx" />
     <ClCompile Include="impl\gladimpl.cpp" />
     <ClCompile Include="impl\imguiimpl.cpp" />
@@ -111,6 +112,8 @@
     <ClCompile Include="Resources.ixx" />
     <ClCompile Include="Scene.ixx" />
     <ClCompile Include="RendererInput.ixx" />
+    <ClCompile Include="Timings.ixx" />
+    <ClCompile Include="Window.ixx" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="util\ShaderConstants.hpp" />

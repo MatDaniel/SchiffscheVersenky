@@ -9,27 +9,7 @@ export class Scene
 {
 public:
 
-    /**
-     * @brief This creates a new instance of a scene.
-     * @retval A pointer to an instance of a scene.
-     */
-    typedef std::unique_ptr<Scene>(*GetterFunc)();
-
-    /**
-     * @brief Creates a scene getter function,
-     *        that can be used to hand over the scene
-     *        with the intention to load it later.
-     * @tparam T The type of scene to return.
-     * @retval A function that returns a new instance
-     *         of the specified scene type.
-     */
-    template <class T>
-    inline static GetterFunc getter()
-    {
-        return []() -> std::unique_ptr<Scene> {
-            return { std::make_unique<T>() };
-        };
-    }
+    // Management
 
     /**
      * @brief Loads a scene.
@@ -38,7 +18,7 @@ public:
      *              and will be replaced with the entry scene at run.
      * @param next The scene to load at the next update.
      */
-    static void load(GetterFunc next) noexcept;
+    static void load(std::unique_ptr<Scene>&& next) noexcept;
 
     /**
      * @retval The current scene.
@@ -54,43 +34,59 @@ public:
     /**
      * @brief Destroys the current scene.
      */
-    static void release() noexcept;
+    static void cleanUp() noexcept;
+
+    // Callbacks
 
     /**
-     * @brief Updates the scene. Is called every frame.
+     * @brief Called at initialization.
      */
-    virtual void update() = 0;
+    virtual void onInit() = 0;
+
+    /**
+     * @brief Is called every frame.
+     */
+    virtual void onDraw() = 0;
 
     /**
      * @brief Window resize callback.
      */
-    virtual void onWindowResize() = 0;
+    virtual void onWindowResize() { };
+
+    /**
+     * @brief Window cursor moved callback.
+     */
+    virtual void onCursorMoved() { };
 
 };
 
-static std::unique_ptr<Scene> s_scene; // The current loaded scene
-static Scene::GetterFunc s_next; // The next scene to load
+// Management Implementation
 
-inline void Scene::load(GetterFunc next) noexcept
+// Properties
+static std::unique_ptr<Scene> s_current;
+static std::unique_ptr<Scene> s_next;
+
+void Scene::load(std::unique_ptr<Scene>&& next) noexcept
 {
-	s_next = next;
+	s_next = std::move(next);
 }
 
-inline Scene* Scene::current() noexcept
+Scene* Scene::current() noexcept
 {
-	return s_scene.get();
+    return s_current.get();
 }
 
-inline void Scene::next() noexcept
+void Scene::next() noexcept
 {
-    if (s_next)
-    {
-        s_scene = s_next();
-        s_next = nullptr;
-    }
+	if (s_next.get())
+	{
+		s_current = std::move(s_next);
+        s_current->onInit();
+	}
 }
 
-inline void Scene::release() noexcept
+void Scene::cleanUp() noexcept
 {
-    s_scene.release();
+	s_next.release();
+	s_current.release();
 }
