@@ -35,8 +35,6 @@ void NetworkDispatchTest(
 
 int main(int argc, const char* argv[])
 {
-
-	/*
 	auto ServerAddress = DefaultServerAddress;
 	auto PortNumber = DefaultPortNumber;
 	if (argc >= 2)
@@ -80,8 +78,7 @@ int main(int argc, const char* argv[])
 	}
 
 	SsLog("exiting handler loop");
-	*/
-
+	
 
 	// Initialize the window
 	if (!Window::init())

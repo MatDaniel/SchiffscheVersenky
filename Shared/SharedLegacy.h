@@ -8,6 +8,10 @@
 #include <WS2tcpip.h>
 
 #include <cstdint>
+
+#include <spdlog/tweakme.h>
+
+#define NOMINMAX
 #include <spdlog/spdlog.h>
 #include <spdlog/sinks/stdout_color_sinks.h>
 
@@ -98,7 +102,12 @@ inline const char* DefaultServerAddress = "127.0.0.1";
 
 using spdlogger = std::shared_ptr<spdlog::logger>;
 
+#define SPDLOG_FULL_PATTERN "[%6n:%^%-8!l%$ | %s:%# = %!] %v"
+#define SPDLOG_FULL_PATTERN_NOALIGN "[%n:%^%l%$ | %s:%# = %!] %v"
+#define SPDLOG_SMALL_PATTERN "[%6n:%^%-8!l%$] %v"
+#define SPDLOG_SMALL_PATTERN_NOALIGN "[%n:%^%l%$] %v"
 
+#define TRACE_FUNTION_PROTO SPDLOG_TRACE("")
 
 
 enum ShipSocketStatus {

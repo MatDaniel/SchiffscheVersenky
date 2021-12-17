@@ -2,6 +2,7 @@
 import NetworkIoControl;
 import GameManagment;
 
+#define SPDLOG_ACTIVE_LEVEL SPDLOG_LEVEL_TRACE
 #include <SharedLegacy.h>
 #include <memory>
 
@@ -19,33 +20,43 @@ void ServerManagmentDispatchRoutine(
 	IoRequestPacket&  NetworkRequest,
 	void*             UserContext
 ) {
+	TRACE_FUNTION_PROTO;
+
 	switch (NetworkRequest.IoControlCode) {
 	case IoRequestPacket::INCOMING_CONNECTION:
 	{
-		LayerLog->info("Incoming connection requested, adding client");
+		SPDLOG_LOGGER_INFO(LayerLog, "Incoming connection requested, adding client");
 		auto NewClient = NetworkDevice.AcceptIncomingConnection(NetworkRequest);
-		if (!NewClient) {
-
-			LayerLog->error("Socket failed to accept remote client");
-			return; // Fatal dispatch exit
-		}
-
-		if (NetworkDevice.GetNumberOfConnectedClients() >= 2) {
-			
-			// we would need to inform the connecting client of all the current states etc 
-			LayerLog->info("There are already 2 connected players, may only accept viewers now (to be implemented)");
-
-
-
-			NetworkRequest.IoRequestStatus = IoRequestPacket::STATUS_REQUEST_COMPLETED;
-			break; // Skip further handling
-		}
+		if (!NewClient)			
+			return SPDLOG_LOGGER_ERROR(LayerLog, "Socket failed to accept remote client"); // Fatal dispatch exit
+		SPDLOG_LOGGER_INFO(LayerLog, "Successfully connected client to server");
 
 		// we now need to notify the game manager of the connecting player
-
 		auto GameManager = GameManagmentController::GetInstance();
+		auto NewPlayer = GameManager->AllocattePlayerWithId(NewClient->GetSocket());
+		if (!NewPlayer) {
+			
+			// we would need to inform the connecting client of all the current states etc 
+			SPDLOG_LOGGER_INFO(LayerLog, "There are already 2 connected players, may only accept viewers now (to be implemented)");
+			
+			// TODO: code goes here
 
 
+
+			// Skip further handling
+			return (void)NetworkRequest.CompleteIoRequest(IoRequestPacket::STATUS_REQUEST_COMPLETED);
+		}
+		
+		// Send game dimensions information
+		auto Result = NewClient->SendShipControlPackageDynamic(ShipSockControl{
+				.ControlCode = ShipSockControl::STARTUP_FIELDSIZE,
+				.GameFieldSizes = GameManager->GetFieldDimensions()
+			});
+		if (Result < 0)
+			return NetworkRequest.CompleteIoRequest(IoRequestPacket::STATUS_REQUEST_ERROR),
+				SPDLOG_LOGGER_ERROR(LayerLog, "Failed to transmit field size data to client");
+		NetworkRequest.CompleteIoRequest(IoRequestPacket::STATUS_REQUEST_COMPLETED);
+		SPDLOG_LOGGER_INFO(LayerLog, "Successfully allocated and associated client to player");
 	}
 		break;
 
@@ -56,51 +67,155 @@ void ServerManagmentDispatchRoutine(
 			PacketBuffer.get(),
 			PACKET_BUFFER_SIZE,
 			0);
-		LayerLog->info("Incoming packet request, read input: {}", Result);
+		SPDLOG_LOGGER_INFO(LayerLog, "Incoming packet request, read input: {}", Result);
 		
 		switch (Result) {
 		case SOCKET_ERROR:
-			NetworkRequest.IoRequestStatus = IoRequestPacket::STATUS_REQUEST_ERROR;
-			LayerLog->error("fatal on receive on requesting socket[{:04x}], {}",
+			SPDLOG_LOGGER_ERROR(LayerLog, "fatal on receive on requesting socket [{:04x}], {}",
 				NetworkRequest.RequestingSocket, WSAGetLastError());
+			NetworkRequest.CompleteIoRequest(IoRequestPacket::STATUS_REQUEST_ERROR);
 			break;
 
 		case 0:
-			NetworkRequest.IoRequestStatus = IoRequestPacket::STATUS_REQUEST_IGNORED;
-			LayerLog->warn("Socket [{:04x}] was gracefully disconnected",
+			SPDLOG_LOGGER_WARN(LayerLog, "Socket [{:04x}] was gracefully disconnected",
 				NetworkRequest.RequestingSocket);
+			NetworkRequest.CompleteIoRequest(IoRequestPacket::STATUS_REQUEST_IGNORED);
 			break;
 
 		default:
-			// Request has to be handled here
-
 			auto IoPacket = (ShipSockControl*)PacketBuffer.get();
+			switch (IoPacket->ControlCode) {
+			case ShipSockControl::NO_COMMAND_CLIENT:
+				SPDLOG_LOGGER_WARN(LayerLog, "Debug NO_COMMAND received");
+				break;
 
-			switch (IoPacket->ControlCode)
+			case ShipSockControl::SHOOT_CELL_CLIENT:
 			{
-			case ShipSockControl::NO_COMMAND:
-				LayerLog->warn("Debug NO_COMMAND received");
+				auto GameManager = GameManagmentController::GetInstance();
+				auto RequestingClientId = NetworkRequest.RequestingSocket;
+
+				// Get players by id (socket handle)
+				PlayerField* RemotePlayer;
+				auto RequestingPlayer = GameManager->GetPlayerFieldControllerById(RequestingClientId,
+					&RemotePlayer);
+				if (!RequestingPlayer)
+					return NetworkRequest.CompleteIoRequest(IoRequestPacket::STATUS_REQUEST_IGNORED),
+						SPDLOG_LOGGER_WARN(LayerLog, "Shoot request not by player");
+				SPDLOG_LOGGER_INFO(LayerLog, "Found players for SHOOT request");
+
+				// Check if requesting player has its turn now
+				if (RequestingPlayer != GameManager->GetPlayerByTurn()) {
+					auto Client = NetworkDevice.GetClientBySocket(RequestingClientId);
+					if (!Client)
+						return NetworkRequest.CompleteIoRequest(IoRequestPacket::STATUS_REQUEST_ERROR),
+						SPDLOG_LOGGER_CRITICAL(LayerLog, "Could NOT find Client for registered socket [{:04x}]",
+							RequestingClientId); // Abort server
+
+					// Post status report
+					if (Client->RaiseStatusMessage(ShipControlStatus::STATUS_NOT_YOUR_TURN) < 0)
+						return NetworkRequest.CompleteIoRequest(IoRequestPacket::STATUS_REQUEST_ERROR),
+						SPDLOG_LOGGER_ERROR(LayerLog, "Failed to post status message code on client [{:04x}]",
+							RequestingClientId);
+
+					// Complete request and exit dispatch
+					return NetworkRequest.CompleteIoRequest(IoRequestPacket::STATUS_REQUEST_COMPLETED),
+						SPDLOG_LOGGER_WARN(LayerLog, "Requesting player [{:04x}], did not have his turn for current round",
+							RequestingClientId);
+				}
+
+				// Update internal server state
+				auto NewCellState = RemotePlayer->StrikeCellAndUpdateShipList(
+					IoPacket->ShootCellLocation);
+				SPDLOG_LOGGER_INFO(LayerLog, "New Cellstate for {{{}:{}}} is {}",
+					IoPacket->ShootCellLocation.XCord,
+					IoPacket->ShootCellLocation.YCord,
+					NewCellState);
+
+				// Send update notification to all connected clients
+				ShipSockControl UpdateNotification{
+					.SizeOfThisStruct = sizeof(UpdateNotification),
+					.ControlCode = ShipSockControl::CELL_STATE_SERVER,
+					.CellStateUpdate = {
+						.Coordinates = IoPacket->ShootCellLocation,
+						.State = NewCellState
+					}
+				};
+				auto ControllerList = NetworkDevice.GetClientList();
+				for (auto& Client : ControllerList)
+					if (auto Result = Client.SendShipControlPackageDynamic(UpdateNotification) < 0)
+						SPDLOG_LOGGER_WARN(LayerLog, "failed to send client [{:04x}] cellstate update command",
+							Client.GetSocket());
+				SPDLOG_LOGGER_INFO(LayerLog, "Updated all clients");
+				NetworkRequest.CompleteIoRequest(IoRequestPacket::STATUS_REQUEST_COMPLETED);
+			}
+				break;
+
+			case ShipSockControl::SET_SHIP_LOC_CLIENT:
+			{
+				// Meta setup handle data
+				auto GameManager = GameManagmentController::GetInstance();
+				auto RequestingClientId = NetworkRequest.RequestingSocket;
+				
+				// Check if type of request is currently accepted in gamestate
+				if (GameManager->GetCurrentGamePhase() != GamePhase::SETUP_PHASE)
+					return NetworkRequest.CompleteIoRequest(IoRequestPacket::STATUS_REQUEST_IGNORED),
+						SPDLOG_LOGGER_WARN(LayerLog, "Cannot place ships in non setup phases of the game");
+
+				// Get Player for requesting client or exit
+				auto RequestingPlayer = GameManager->GetPlayerFieldControllerById(RequestingClientId);
+				if (!RequestingPlayer)
+					return NetworkRequest.CompleteIoRequest(IoRequestPacket::STATUS_REQUEST_IGNORED),
+						SPDLOG_LOGGER_WARN(LayerLog, "requesting client [{:04x}] is not a player, unable to allocate ship",
+							RequestingClientId);
+				SPDLOG_LOGGER_INFO(LayerLog, "Found player {} for ship placement request request",
+					(void*)RequestingPlayer);
+
+				// Place ship into grid
+				auto Result = RequestingPlayer->PlaceShipSecureCheckInterference(
+					IoPacket->SetShipLocation.ShipType,
+					IoPacket->SetShipLocation.Rotation,
+					IoPacket->SetShipLocation.ShipsPosition);
+				if (Result < 0) {
+					
+					// the ship presumably collided with another ship or the current slot is unavailable,
+					// client has to be notified of the invalid placement
+					auto Client = NetworkDevice.GetClientBySocket(RequestingClientId);
+					if (!Client)
+						return NetworkRequest.CompleteIoRequest(IoRequestPacket::STATUS_REQUEST_ERROR),
+							SPDLOG_LOGGER_CRITICAL(LayerLog, "Critical failure, no client associated to requesting socket, impossible state");
+
+					// Notify player of invalid placement
+					if (Client->RaiseStatusMessage(ShipControlStatus::STATUS_INVALID_PLACEMENT) < 0)
+						return NetworkRequest.CompleteIoRequest(IoRequestPacket::STATUS_REQUEST_ERROR),
+						SPDLOG_LOGGER_ERROR(LayerLog, "Failed to post status message code on client [{:04x}]",
+							RequestingClientId);
+					return (void)NetworkRequest.CompleteIoRequest(IoRequestPacket::STATUS_REQUEST_COMPLETED);
+				}
+
+				// Complete request
+				SPDLOG_LOGGER_INFO(LayerLog, "Successfully received and placed ship on board");
+				NetworkRequest.CompleteIoRequest(IoRequestPacket::STATUS_REQUEST_COMPLETED);
+			}
+				break;
+
+
 
 
 			default:
-				break;
+				SPDLOG_LOGGER_WARN(LayerLog, "Untreated ShipSockControl command encountered, this is fine for now");
 			}
-
-
-
-			NetworkRequest.IoRequestStatus = IoRequestPacket::STATUS_REQUEST_COMPLETED;
 		}
 	}
 		break;
 
 	case IoRequestPacket::SOCKET_DISCONNECTED:
-		NetworkRequest.IoRequestStatus = IoRequestPacket::STATUS_REQUEST_COMPLETED;
-		LayerLog->warn("Socket [{:04x}] was gracefully disconnected", 
+		NetworkRequest.CompleteIoRequest(IoRequestPacket::STATUS_REQUEST_COMPLETED);
+		SPDLOG_LOGGER_WARN(LayerLog, "Socket [{:04x}] was gracefully disconnected", 
 			NetworkRequest.RequestingSocket);
 		break;
 
 	default:
-		LayerLog->warn("Io request left untreated, fatal");
+		SPDLOG_LOGGER_CRITICAL(LayerLog, "Io request left untreated, fatal");
 	}
 }
 
@@ -118,22 +233,24 @@ int main(
 		// Creating Loggers, we need 3 for each component (Game, Server, Layer)
 		GameLog = spdlog::stdout_color_st("Game");
 		ServerLog = spdlog::stdout_color_st("Socket");
-		LayerLog = spdlog::stdout_color_st("Layer"); 
+		LayerLog = spdlog::stdout_color_st("Layer");	
+		spdlog::set_pattern(SPDLOG_SMALL_PATTERN);
+		spdlog::set_level(spdlog::level::debug);
+		TRACE_FUNTION_PROTO;
 	
-
-
-		// Creating and initilizing network managers
+		// Creating and initializing network managers
 		auto& ShipSocketObject = *NetWorkIoControl::CreateSingletonOverride(PortNumber);
-		ShipCount Ships{ 2,2,2,2,2 };
-		auto& ShipGameObject = *GameManagmentController::CreateSingletonOverride(6, 6, Ships);
+		auto& ShipGameObject = *GameManagmentController::CreateSingletonOverride({ 6, 6 },
+			{ 2,2,2,2,2 });
 		
-		LayerLog->info("Entering server management mode, ready for IO");
+		// Main server handler loop
+		SPDLOG_LOGGER_INFO(LayerLog, "Entering server management mode, ready for IO");
 		for (;;) {
 			Result = ShipSocketObject.PollNetworkConnectionsAndDispatchCallbacks(
 				ServerManagmentDispatchRoutine,
 				nullptr);
 			if (Result < 0)
-				return LayerLog->error("An error with id:{} ocured on in the callback dispatch routine",
+				return SPDLOG_LOGGER_ERROR(LayerLog, "An error with id:{} ocured on in the callback dispatch routine",
 					Result), EXIT_FAILURE;
 		}
 	}
@@ -146,15 +263,15 @@ int main(
 	}
 	catch (const int& ExceptionCode) {
 		
-		LayerLog->error("A critical Exception code was thrown, {}", ExceptionCode);
+		SPDLOG_LOGGER_ERROR(LayerLog, "A critical Exception code was thrown, {}", ExceptionCode);
 		return EXIT_FAILURE;
 	}
 	catch (...) {
 
-		LayerLog->error("An unknown exception was thrown, unable to handle");
+		SPDLOG_LOGGER_ERROR(LayerLog, "An unknown exception was thrown, unable to handle");
 		return EXIT_FAILURE;
 	}
 
-	LayerLog->info("Server successfully terminated, shutting down and good night :D");
+	SPDLOG_LOGGER_INFO(LayerLog, "Server successfully terminated, shutting down and good night :D");
 	return EXIT_SUCCESS;
 }

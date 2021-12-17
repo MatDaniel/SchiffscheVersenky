@@ -15,45 +15,58 @@ using namespace std;
 export spdlogger GameLog;
 
 export class PlayerField {
+	friend class GameManagmentController;
 public:
 	PlayerField(
-		      uint8_t    XDimension,
-		      uint8_t    YDimension,
-		const ShipCount& NumberOfShips
+		const FieldDimension FieldSizes,
+		const ShipCount&     NumberOfShips
 	) 
-		: NumberOfShipsPerType(NumberOfShips) {
+		: FieldDimensions(FieldSizes), 
+		  NumberOfShipsPerType(NumberOfShips) {
+		TRACE_FUNTION_PROTO;
 
-		FieldDimensions = { XDimension, YDimension };
-		FieldCellStates = new CellState[XDimension * YDimension];
+		auto NumberOfCells = FieldDimensions.XDimension * FieldDimensions.YDimension;
+		FieldCellStates = new CellState[NumberOfCells];
 		memset(FieldCellStates,
 			CELL_IS_EMPTY,
-			XDimension * YDimension);
+			NumberOfCells);
 		NumberOfShipsPerType = NumberOfShips;
-		GameLog->info("Allocated and initialized internal gamefield lookup with parameters: {{{}:{}}}", 
-			XDimension, YDimension);
+		SPDLOG_LOGGER_INFO(GameLog, "Allocated and initialized internal gamefield lookup with parameters: {{{}:{}}}", 
+			FieldDimensions.XDimension, FieldDimensions.YDimension);
 	}
 	~PlayerField() {
+		TRACE_FUNTION_PROTO;
+
 		delete FieldCellStates;
-		GameLog->info("Playerfield [{}:{}] destroyed, cleaning up state",
+		SPDLOG_LOGGER_INFO(GameLog, "Playerfield [{}:{}] destroyed, cleaning up state",
 			(void*)this, (void*)FieldCellStates);
 	}
 
-	long PlaceShip(
-		const ShipState& RemoteShipState
+	long PlaceShipSecureCheckInterference(
+		ShipClass       ShipType,
+		ShipRotation    ShipOrientation,
+		FieldCoordinate ShipCoordinates
 	) {
+		TRACE_FUNTION_PROTO;
+
 		// Check if all Slots have been occupied
 		if (FieldShipStates.size() >= NumberOfShipsPerType.GetTotalCount())
-			return GameLog->error("No available slots to place ship, max: {} ships",
+			return SPDLOG_LOGGER_ERROR(GameLog, "No available slots to place ship, max: {} ships",
 				NumberOfShipsPerType.GetTotalCount()), -1;
 
 		// Walk OccupationTable and check if slot for specific ship type is available
 		ShipCount CounterWeight;
 		for (auto& ShipEntry : FieldShipStates)
-			if (ShipEntry.ShipType == RemoteShipState.ShipType)
-				if (++CounterWeight.ShipCounts[ShipEntry.ShipType] >= NumberOfShipsPerType.ShipCounts[RemoteShipState.ShipType])
-					return GameLog->error("Conflicting ship category, all ships of type already in use"), -2;
+			if (ShipEntry.ShipType == ShipType)
+				if (++CounterWeight.ShipCounts[ShipEntry.ShipType] >= NumberOfShipsPerType.ShipCounts[ShipType])
+					return SPDLOG_LOGGER_ERROR(GameLog, "Conflicting ship category, all ships of type already in use"), -2;
 
-		// check if the ship even fits within the field at its cords
+		// Check if the ship even fits within the field at its cords
+		ShipState RemoteShipState{
+			.ShipType = ShipType,
+			.Cordinates = ShipCoordinates,
+			.Rotation = ShipOrientation
+		};
 		auto ShipEndPosition = CalculateCordinatesOfPartByDistanceWithShip(
 			RemoteShipState,
 			ShipLengthPerType[RemoteShipState.ShipType]);
@@ -61,7 +74,7 @@ public:
 			RemoteShipState.Cordinates.YCord > FieldDimensions.YDimension ||
 			ShipEndPosition.XCord > FieldDimensions.XDimension ||
 			ShipEndPosition.YCord > FieldDimensions.YDimension)
-			return GameLog->error("{{{}:{}}} is no within the specified field size of {{{}:{}}}",
+			return SPDLOG_LOGGER_ERROR(GameLog, "{{{}:{}}} is no within the specified field size of {{{}:{}}}",
 				RemoteShipState.Cordinates.XCord, RemoteShipState.Cordinates.YCord,
 				FieldDimensions.XDimension, FieldDimensions.YDimension), -3;
 
@@ -75,7 +88,7 @@ public:
 
 			// Get cellstate at X:Y
 			if (GetCellReferenceByCoordinates(IteratorPosition) != CELL_IS_EMPTY)
-				return GameLog->error("Ship collides with another ship in {{{}:{}}}",
+				return SPDLOG_LOGGER_ERROR(GameLog, "Ship collides with another ship in {{{}:{}}}",
 					IteratorPosition.XCord, IteratorPosition.YCord), -4; // collision detected
 
 			for (auto y = -1; y < 1; ++y)
@@ -90,7 +103,7 @@ public:
 						LookupLocation.YCord > FieldDimensions.YDimension)
 						continue;
 					if (GetCellReferenceByCoordinates(LookupLocation) != CELL_IS_EMPTY)
-						return GameLog->error("Ship is in an illegal position conflicting with {{{}:{}}}",
+						return SPDLOG_LOGGER_ERROR(GameLog, "Ship is in an illegal position conflicting with {{{}:{}}}",
 							LookupLocation.XCord, LookupLocation.YCord), -5; // illegal placement detected
 				}
 		}
@@ -106,13 +119,15 @@ public:
 
 		// Finally add the Ship to our list;
 		FieldShipStates.push_back(RemoteShipState);
-		GameLog->info("Registered ship in list at location {{{}:{}}}",
+		SPDLOG_LOGGER_INFO(GameLog, "Registered ship in list at location {{{}:{}}}",
 			RemoteShipState.Cordinates.XCord, RemoteShipState.Cordinates.YCord);
 	}
 
 	ShipState* GetShipEntryForCordinate(
 		FieldCoordinate Cordinates
 	) {
+		TRACE_FUNTION_PROTO;
+
 		// Enumerate all current valid ships and test all calculated cords of their parts against requested cords
 		for (auto& ShipEntry : FieldShipStates) {
 
@@ -124,12 +139,12 @@ public:
 					ShipEntry, i);
 				if (IteratorPosition.XCord == Cordinates.XCord &&
 					IteratorPosition.YCord == Cordinates.YCord)
-					return GameLog->info("Found ship at {{{}:{}}}",
+					return SPDLOG_LOGGER_INFO(GameLog, "Found ship at {{{}:{}}}",
 						IteratorPosition.XCord, IteratorPosition.YCord), &ShipEntry;
 			}
 		}
 
-		GameLog->warn("Failed to find an associated ship for location {{{}:{}}}",
+		SPDLOG_LOGGER_WARN(GameLog, "Failed to find an associated ship for location {{{}:{}}}",
 			Cordinates.XCord, Cordinates.YCord);
 		return nullptr;
 	}
@@ -137,6 +152,8 @@ public:
 	CellState StrikeCellAndUpdateShipList(
 		FieldCoordinate Coordinates
 	) {
+		TRACE_FUNTION_PROTO;
+
 		// Test and shoot cell in grid
 		auto& LocalCell = GetCellReferenceByCoordinates(Coordinates);
 		if (LocalCell & CELL_PROBE_WAS_SHOT)
@@ -155,11 +172,11 @@ public:
 			auto IteratorPosition = CalculateCordinatesOfPartByDistanceWithShip(
 				ShipEntry, i);
 			if (GetCellReferenceByCoordinates(IteratorPosition) != CELL_WAS_SHOT_IN_USE)
-				return GameLog->info("Ship at {{{}:{}}} was succesfully hit",
+				return SPDLOG_LOGGER_INFO(GameLog, "Ship at {{{}:{}}} was succesfully hit",
 					ShipEntry.Cordinates.XCord, ShipEntry.Cordinates.YCord), LocalCell;
 		}
 
-		GameLog->info("Ship at {{{}:{}}} was sunken",
+		SPDLOG_LOGGER_INFO(GameLog, "Ship at {{{}:{}}} was sunken",
 			ShipEntry.Cordinates.XCord, ShipEntry.Cordinates.YCord);
 		return Cell_WAS_DESTRUCTOR;
 	}
@@ -169,6 +186,8 @@ private:
 		const ShipState& BaseShipData,
 		      uint8_t    DistanceToWalk
 	) const {
+		TRACE_FUNTION_PROTO;
+
 		return {
 				.XCord = (uint8_t)(BaseShipData.Cordinates.XCord
 					+ ((DistanceToWalk * (-1 * (BaseShipData.Rotation >> 1)))
@@ -182,66 +201,176 @@ private:
 	CellState& GetCellReferenceByCoordinates(
 		const FieldCoordinate Cordinates
 	) const {
+		TRACE_FUNTION_PROTO;
+
 		return FieldCellStates[Cordinates.YCord * FieldDimensions.XDimension + Cordinates.XCord];
 	}
 
 	FieldDimension FieldDimensions;
-	CellState*                   FieldCellStates;
+	CellState*     FieldCellStates;
+	SOCKET         PlayerAssociation = INVALID_SOCKET;
 
 	ShipCount         NumberOfShipsPerType;
 	vector<ShipState> FieldShipStates;
 };
 
+export struct PlayerState {
+	bool ReadyUped;
+
+};
+
+export enum GamePhase {
+	INVALID_PHASE = -1,
+	SETUP_PHASE,
+	GAME_PHASE,
+	GAMEEND_PHASE
+};
+
+
 
 export class GameManagmentController {
 public:
 	static GameManagmentController* CreateSingletonOverride(
-		uint8_t          XDimension,
-		uint8_t          YDimension,
-		const ShipCount& NumberOfShips
+		const FieldDimension FieldSizes,
+		const ShipCount&     NumberOfShips
 	) {		
+		TRACE_FUNTION_PROTO;
+
 		// Magic fuckery cause make_unique cannot normally access a private constructor
 		struct EnableMakeUnique : public GameManagmentController {
 			inline EnableMakeUnique(
-				uint8_t          XDimension,
-				uint8_t          YDimension,
-				const ShipCount& NumberOfShips
+				const FieldDimension FieldSizes,
+				const ShipCount&     NumberOfShips
 			)
 				: GameManagmentController(
-					XDimension,
-					YDimension,
+					FieldSizes,
 					NumberOfShips) {}
 		};
 
 		InstanceObject = make_unique<EnableMakeUnique>(
-			XDimension,
-			YDimension,
+			FieldSizes,
 			NumberOfShips);
-		GameLog->info("Factory created game managment object at {}",
+		SPDLOG_LOGGER_INFO(GameLog, "Factory created game managment object at {}",
 			(void*)InstanceObject.get());
 		return InstanceObject.get();
 	}
 	static GameManagmentController* GetInstance() {
+		TRACE_FUNTION_PROTO;
+
 		return InstanceObject.get();
 	}
 
 	~GameManagmentController() {
-		GameLog->info("game manager destroyed, cleaning up assocs");		
+		TRACE_FUNTION_PROTO;
+
+		SPDLOG_LOGGER_INFO(GameLog, "game manager destroyed, cleaning up assocs");
 	}
 	GameManagmentController(
 		const GameManagmentController&) = delete;
 	GameManagmentController& operator=(
 		const GameManagmentController&) = delete;
 
+
+
+	uint8_t GetCurrentPlayerCount() {
+		TRACE_FUNTION_PROTO;
+
+		return CurrentPlayersRegistered;
+	}
+	PlayerField* AllocattePlayerWithId(
+		SOCKET SocketAsId
+	) {
+		TRACE_FUNTION_PROTO;
+
+		if (CurrentPlayersRegistered >= 2)
+			return SPDLOG_LOGGER_WARN(GameLog, "Cannot allocate more Players, there are already 2 present"),
+				nullptr;
+
+		RemotePlayersField[CurrentPlayersRegistered].PlayerAssociation = SocketAsId;
+		++CurrentPlayersRegistered;
+		SPDLOG_LOGGER_INFO(GameLog, "Allocated Player to socket [{:04x}]",
+			SocketAsId);
+		return &RemotePlayersField[CurrentPlayersRegistered - 1];
+	}
+
+	PlayerField* GetPlayerFieldControllerById(
+		SOCKET        SocketAsPlayerId,
+		PlayerField** OtherPlayerField = nullptr
+	) {
+		TRACE_FUNTION_PROTO;
+
+		auto PlayerIndex = GetPlayerIndexById(SocketAsPlayerId);
+		if (PlayerIndex < 0)
+			return nullptr;
+		
+		if (OtherPlayerField)
+			*OtherPlayerField = &RemotePlayersField[PlayerIndex ^ 1];
+		return &RemotePlayersField[PlayerIndex];
+	}
+	PlayerState* GetPlayerStateById(
+		SOCKET        SocketAsPlayerId,
+		PlayerState** OtherPlayerState = nullptr
+	) {
+		TRACE_FUNTION_PROTO;
+
+		auto PlayerIndex = GetPlayerIndexById(SocketAsPlayerId);
+		if (PlayerIndex < 0)
+			return nullptr;
+
+		if (OtherPlayerState)
+			*OtherPlayerState = &RemotePlayerState[PlayerIndex ^ 1];
+		return &RemotePlayerState[PlayerIndex];
+	}
+
+	PlayerField* GetPlayerByTurn() {
+		TRACE_FUNTION_PROTO;
+
+		return &RemotePlayersField[CurrentPlayersTurnIndex];
+	}
+	
+	GamePhase GetCurrentGamePhase() {
+		TRACE_FUNTION_PROTO;
+
+		return CurrentGameState;
+	}
+
+	FieldDimension GetFieldDimensions() {
+		TRACE_FUNTION_PROTO;
+
+		return CurrentFieldDimensions;
+	}
+
 private:
+	int32_t GetPlayerIndexById(
+		SOCKET SocketAsPlayerId
+	) {
+		TRACE_FUNTION_PROTO;
+
+		for (auto i = 0; i < _countof(RemotePlayersField); ++i)
+			if (RemotePlayersField[i].PlayerAssociation == SocketAsPlayerId)
+				return i;
+		return -1;
+	}
+
 	GameManagmentController(
-		uint8_t          XDimension,
-		uint8_t          YDimension,
-		const ShipCount& NumberOfShips
+		const FieldDimension FieldSizes,
+		const ShipCount&     NumberOfShips
 	) 
-		: RemotePlayers{ { XDimension, YDimension, NumberOfShips },
-	                     { XDimension, YDimension, NumberOfShips } } {}
-	PlayerField RemotePlayers[2];
+		: RemotePlayersField{ { FieldSizes, NumberOfShips },
+			{ FieldSizes, NumberOfShips } },
+		CurrentFieldDimensions(FieldSizes) {}
+
+	// Primary game state
+	PlayerField RemotePlayersField[2];
+	PlayerState RemotePlayerState[2]{};
+
+	// Non primary game state
+	uint8_t        CurrentPlayersRegistered = 0;
+	uint8_t        CurrentPlayersTurnIndex = 0;
+	GamePhase      CurrentGameState = SETUP_PHASE;
+	FieldDimension CurrentFieldDimensions;
+
+
 
 	static inline unique_ptr<GameManagmentController> InstanceObject;
 };
