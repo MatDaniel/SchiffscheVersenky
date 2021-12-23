@@ -127,14 +127,19 @@ public:
 	SceneRenderer(const SceneRenderer&) = delete;
 	SceneRenderer& operator=(const SceneRenderer&) = delete;
 
-	inline SceneInfo& info() noexcept
+	SceneInfo& info() noexcept
 	{
 		return m_info;
 	}
 
-	inline const SceneInfo& info() const noexcept
+	const SceneInfo& info() const noexcept
 	{
 		return m_info;
+	}
+
+	const SceneUBO& ubo() const noexcept
+	{
+		return m_currentUbo;
 	}
 
 	// Update functions

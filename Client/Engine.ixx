@@ -93,7 +93,6 @@ export namespace Engine
 		if (!gladLoadGLLoader((GLADloadproc)glfwGetProcAddress))
 		{
 			s_glLogger->critical("Loading the OpenGL function pointers failed!");
-			glfwTerminate();
 			return false;
 		}
 

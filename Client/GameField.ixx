@@ -6,6 +6,7 @@ module;
 #include <glm/gtc/matrix_transform.hpp>
 #include <unordered_map>
 #include <vector>
+#include <imgui.h>
 
 #include "Vertex.hpp"
 
@@ -13,6 +14,7 @@ module;
 export module Game.GameField;
 import Draw.Resources;
 import Draw.Renderer;
+import Draw.Window;
 
 constexpr float BorderSize = 0.1F;
 constexpr glm::vec3 UpNormal = glm::vec3(0.0F, 1.0F, 0.0F);
@@ -249,6 +251,52 @@ public:
 	size_t index(uint32_t x, uint32_t y) const noexcept
 	{
 		return m_width * y + x;
+	}
+
+	glm::vec2 cursorPos(const SceneRenderer& renderer)
+	{
+
+		// Calculate top left & top right corner position in the opengl canvas
+		auto& ubo = renderer.ubo();
+		glm::vec2 topLeft = ubo.projMtx * ubo.viewMtx * m_transform * glm::vec4(
+			m_topLeftMidSqPos.y + (m_sqaureSize / 2),
+			0.0F,
+			m_topLeftMidSqPos.x - (m_sqaureSize / 2),
+			1.0F
+		);
+		glm::vec2 botRight = ubo.projMtx * ubo.viewMtx * m_transform * glm::vec4(
+			m_topLeftMidSqPos.y - ((m_height - 0.5F) * m_sqaureSize),
+			0.0F,
+			m_topLeftMidSqPos.x + ((m_width - 0.5F) * m_sqaureSize),
+			1.0F
+		);
+		
+		// Convert cursor glfw position to an opengl canvas position
+		auto cursorPos = Window::Properties::cursorPos();
+		auto winSize = Window::Properties::windowSize();
+		auto cursorPosGL = glm::vec2(
+			(cursorPos.x / (winSize.x - 1)) *  2.0F - 1.0F,
+			(cursorPos.y / (winSize.y - 1)) * -2.0F + 1.0F
+		);
+
+		// Calculate field size in the opengl canvas
+		auto fieldSize = glm::abs(glm::vec2(
+			glm::abs(topLeft.x + 1.0F) - glm::abs(botRight.x + 1.0F),
+			glm::abs(topLeft.y - 1.0F) - glm::abs(botRight.y - 1.0F)
+		));
+
+		// Calculate size of squares in the opengl canvas
+		auto sqSize = fieldSize / glm::vec2(m_width, m_height);
+
+		// Calculate cursor position with (0;0) being the top-left corner
+		auto cursorPosGLTL = glm::vec2(
+			cursorPosGL.x - topLeft.x,
+			topLeft.y - cursorPosGL.y
+		);
+		
+		// Scale the position, so 1 unit equals a full square
+		return cursorPosGLTL / sqSize;
+
 	}
 
 private:

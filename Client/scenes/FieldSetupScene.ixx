@@ -3,10 +3,12 @@ module;
 #include <glad/glad.h>
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
+#include <imgui.h>
 
 #include <string>
 
 export module Scenes.FieldSetup;
+import Draw.Window;
 import Draw.Scene;
 import Draw.Engine;
 import Draw.Resources;
@@ -56,6 +58,11 @@ public:
 
 		gameField.draw(renderer);
 		renderer.render();
+
+		ImGui::Begin("GameField Debug", nullptr, ImGuiWindowFlags_NoSavedSettings);
+		auto selected = gameField.cursorPos(renderer);
+		ImGui::Text("Selected Field: { %f ; %f }", selected.x, selected.y);
+		ImGui::End();
 
 	}
 
