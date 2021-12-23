@@ -98,6 +98,7 @@
     <ResourceCompile Include="client.rc" />
   </ItemGroup>
   <ItemGroup>
+    <ClCompile Include="ClientGameState.ixx" />
     <ClCompile Include="Engine.ixx" />
     <ClCompile Include="EntryPoint.cpp" />
     <ClCompile Include="GameField.ixx" />

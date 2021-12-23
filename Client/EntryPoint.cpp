@@ -3,6 +3,8 @@
 // Network
 import NetworkControl;
 import ShipSock;
+
+#define NOMINMAX
 #include <SharedLegacy.h>
 
 // Drawing
@@ -43,6 +45,20 @@ int main(int argc, const char* argv[])
 		PortNumber = argv[2];
 
 	// WaitForDebugger();
+
+	try {
+		GameLog = spdlog::stdout_color_st("Game");
+		// spdlog::set_pattern(SPDLOG_SMALL_PATTERN);
+		spdlog::set_level(spdlog::level::debug);
+		TRACE_FUNTION_PROTO;
+
+	}
+	catch (const spdlog::spdlog_ex& ExceptionInformation) {
+		__debugbreak();
+	}
+
+
+
 
 	SsLog("Creating networkmanager\n");
 	long Result = 0;
