@@ -14,6 +14,7 @@
     <ProjectCapability Include="SourceItemsFromImports" />
   </ItemGroup>
   <ItemGroup>
+    <ClCompile Include="$(MSBuildThisFileDirectory)GameManagment.ixx" />
     <ClCompile Include="$(MSBuildThisFileDirectory)ShipSock.ixx" />
   </ItemGroup>
   <ItemGroup>

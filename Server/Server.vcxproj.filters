@@ -21,8 +21,5 @@
     <ClCompile Include="NetworkIoControl.ixx">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="GameManagment.ixx">
-      <Filter>Source Files</Filter>
-    </ClCompile>
   </ItemGroup>
 </Project>

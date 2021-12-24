@@ -1,4 +1,4 @@
-// Entrypoint of the game server, this implements the connection between thethe game manager and the network manager
+// Entrypoint of the game server, this implements the connection between the game manager and the network manager
 import NetworkIoControl;
 import GameManagment;
 
@@ -10,6 +10,7 @@ extern spdlogger GameLog;
 extern spdlogger ServerLog;
 spdlogger LayerLog;
 using namespace std;
+
 
 
 struct IoDispatchUserContext {
@@ -220,7 +221,7 @@ void ServerManagmentDispatchRoutine(
 }
 
 int main(
-	int         argc,
+	      int   argc,
 	const char* argv[]
 ) {
 	// Create Server on passed port number or use default
@@ -229,21 +230,32 @@ int main(
 		PortNumber = argv[1];
 	long Result = 0;
 	
+	// Creating Loggers, we need 3 for each component (Game, Server, Layer)
 	try {
-		// Creating Loggers, we need 3 for each component (Game, Server, Layer)
+		LayerLog = spdlog::stdout_color_st("Layer");
 		GameLog = spdlog::stdout_color_st("Game");
 		ServerLog = spdlog::stdout_color_st("Socket");
-		LayerLog = spdlog::stdout_color_st("Layer");	
 		spdlog::set_pattern(SPDLOG_SMALL_PATTERN);
 		spdlog::set_level(spdlog::level::debug);
 		TRACE_FUNTION_PROTO;
-	
-		// Creating and initializing network managers
+	}
+	catch (const spdlog::spdlog_ex& ExceptionInformation) {
+
+		SPDLOG_WARN("Failed to initilize Spdlog with: \"{}\"",
+			ExceptionInformation.what());
+		return EXIT_FAILURE;
+	}
+
+
+
+	// Creating network manager and starting server
+	try {
+		// Creating and initializing managers managers
 		auto& ShipSocketObject = *NetWorkIoControl::CreateSingletonOverride(PortNumber);
 		auto& ShipGameObject = *GameManagmentController::CreateSingletonOverride({ 6, 6 },
 			{ 2,2,2,2,2 });
 		
-		// Main server handler loop
+		// Run main server handler loop
 		SPDLOG_LOGGER_INFO(LayerLog, "Entering server management mode, ready for IO");
 		for (;;) {
 			Result = ShipSocketObject.PollNetworkConnectionsAndDispatchCallbacks(
@@ -254,11 +266,16 @@ int main(
 					Result), EXIT_FAILURE;
 		}
 	}
-	catch (const spdlog::spdlog_ex& Exception) {
+	catch (const spdlog::spdlog_ex& ExceptionInformation) {
 
-		SsAssert(1,
-			"spdlog failed with: \"%s\"",
-			Exception.what());
+		SPDLOG_WARN("Spdlog threw an exception: \"{}\"",
+			ExceptionInformation.what());
+		return EXIT_FAILURE;
+	}
+	catch (const std::exception& ExceptionInformation) {
+
+		SPDLOG_LOGGER_ERROR(LayerLog, "StandardException of: {}", 
+			ExceptionInformation.what());
 		return EXIT_FAILURE;
 	}
 	catch (const int& ExceptionCode) {

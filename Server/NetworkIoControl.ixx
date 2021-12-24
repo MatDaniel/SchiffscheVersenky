@@ -12,14 +12,12 @@ module;
 export module NetworkIoControl;
 import ShipSock;
 using namespace std;
-
-
-
 export spdlogger ServerLog;
-export class NetWorkIoControl;
+
+
 
 export class ClientController {
-	friend NetWorkIoControl;
+	friend class NetWorkIoControl;
 public:
 	~ClientController() {
 		TRACE_FUNTION_PROTO;
@@ -88,6 +86,8 @@ private:
 	int32_t  ClientInfoSize = sizeof(ClientInformation);
 };
 
+
+
 export struct IoRequestPacket {
 	enum IoServiceRoutineCtl {           // a control code specifying the type of handling required
 		NO_COMMAND,                      // reserved for @Lima, dont use
@@ -131,6 +131,7 @@ export struct IoRequestPacket {
 		return IoRequestStatus;
 	}
 };
+
 export class NetWorkIoControl
 	: private SocketWrap {
 public:

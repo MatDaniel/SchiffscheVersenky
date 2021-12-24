@@ -10,7 +10,7 @@ module;
 export module NetworkControl;
 import ShipSock;
 using namespace std;
-
+export spdlogger NetworkLog;
 
 
 export class ServerIoController
