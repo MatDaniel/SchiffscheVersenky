@@ -28,10 +28,10 @@
 // #pragma warning(disable : )
 
 
-
 #define PACKED_STRUCT(name) \
 	__pragma(pack(push, 1)) struct name __pragma(pack(pop))
 
+#if 0
 __declspec(noinline)
 inline long SsAssertExecute(
 	const int   Expression,
@@ -79,8 +79,11 @@ inline bool SsLastExpressionEvaluated;
 	((SsAssertExecute(SsLastExpressionEvaluated = (Expression), (FailString), __VA_ARGS__) &&\
 	(__debugbreak(), 1)), SsLastExpressionEvaluated)
 #define SsLog(...) SsAssertExecute(-1, __VA_ARGS__)
+#endif
 #elif
+#if 0
 #define SsAssert(...)
+#endif
 #endif
 
 inline void WaitForDebugger() {
@@ -100,21 +103,13 @@ inline const char* DefaultServerAddress = "127.0.0.1";
 #define FIELD_HEIGHT 10
 #define NUMBER_OF_SHIPS
 
-using spdlogger = std::shared_ptr<spdlog::logger>;
+using SpdLogger = std::shared_ptr<spdlog::logger>;
 
-#define SPDLOG_FULL_PATTERN "[%6n:%^%-8!l%$ | %s:%# = %!] %v"
+#define SPDLOG_FULL_PATTERN "[%7n:%^%-8!l%$ | %s:%# = %!] %v"
 #define SPDLOG_FULL_PATTERN_NOALIGN "[%n:%^%l%$ | %s:%# = %!] %v"
-#define SPDLOG_SMALL_PATTERN "[%6n:%^%-8!l%$] %v"
+#define SPDLOG_SMALL_PATTERN "[%7n:%^%-8!l%$] %v"
 #define SPDLOG_SMALL_PATTERN_NOALIGN "[%n:%^%l%$] %v"
 
 #define TRACE_FUNTION_PROTO SPDLOG_TRACE("")
 
 
-enum ShipSocketStatus {
-	STATUS_SOCKETERROR = SOCKET_ERROR,
-	STATUS_SUCESSFUL = 0,
-	STATUS_WORK_PENDING = 1,
-	STATUS_FAILED_TO_CONNECT = -2,
-
-
-};
