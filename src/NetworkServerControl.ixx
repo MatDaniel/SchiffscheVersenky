@@ -10,26 +10,26 @@ module;
 #include <span>
 
 export module Network.Server;
-export import Network;
+export import LayerBase;
 using namespace std;
 
 
 
-// Server sided network managment code
+// Server sided network management code
 export namespace Network::Server {
 	using namespace Network;
 
 	// A per client instance of an Io bridge
-	class ClientController {
+	class NwClientControl {
 		friend class NetworkManager;
 	public:
-		~ClientController() {
+		~NwClientControl() {
 			TRACE_FUNTION_PROTO;
 
 			SPDLOG_LOGGER_INFO(NetworkLog, "Client controller has been closed");
 		}
 		bool operator==(
-			const ClientController* Rhs
+			const NwClientControl* Rhs
 			) const {
 			TRACE_FUNTION_PROTO;
 
@@ -97,7 +97,7 @@ export namespace Network::Server {
 		: public NwRequestBase {
 	
 		SOCKET            RequestingSocket; // the socket which was responsible for the incoming request
-		ClientController* OptionalClient;   // an optional pointer set by the NetworkManager to the client responsible for the request,
+		NwClientControl* OptionalClient;   // an optional pointer set by the NetworkManager to the client responsible for the request,
 											// on accept this will contain the information about the connecting client the callback can decide to accept the connection
 
 		bool StatusListModified = false;    // Internal flag relevant to the socket descriptor list, as it logs modification and restarts the evaluation loop
@@ -191,7 +191,7 @@ export namespace Network::Server {
 					) -> NwRequestPacket {
 
 						// Lookup client list for matching client entry and create association
-						ClientController* Associate = nullptr;
+						NwClientControl* Associate = nullptr;
 						for (auto& Client : ConnectedClients)
 							if (Client.GetSocket() == SocketDescriptor) {
 								Associate = &Client; break;
@@ -285,7 +285,7 @@ export namespace Network::Server {
 				NwRequestPacket::STATUS_REQUEST_COMPLETED;
 		}
 
-		ClientController* AcceptIncomingConnection( // Accepts an incoming connection and allocates the client,
+		NwClientControl* AcceptIncomingConnection( // Accepts an incoming connection and allocates the client,
 													// if successful invalidates all references to existing clients
 													// This provides default request handling, RequestStatus modified
 			NwRequestPacket& NetworkRequest         // The NetworkRequest to apply accept handling on
@@ -293,7 +293,7 @@ export namespace Network::Server {
 			TRACE_FUNTION_PROTO;
 
 			// Accepting incoming connection and allocating controller
-			ClientController ConnectingClient;
+			NwClientControl ConnectingClient;
 			ConnectingClient.AssociatedClient = accept(
 				NetworkRequest.RequestingSocket,
 				&ConnectingClient.ClientInformation,
@@ -330,7 +330,7 @@ export namespace Network::Server {
 
 			return span(ConnectedClients);
 		}
-		ClientController* GetClientBySocket(
+		NwClientControl* GetClientBySocket(
 			SOCKET SocketAsId
 		) {
 			TRACE_FUNTION_PROTO;
@@ -428,7 +428,7 @@ export namespace Network::Server {
 
 
 		SOCKET                   LocalServerSocket = INVALID_SOCKET;
-		vector<ClientController> ConnectedClients;
+		vector<NwClientControl> ConnectedClients;
 		vector<WSAPOLLFD>        SocketDescriptorTable;
 
 		static inline unique_ptr<NetworkManager> InstanceObject;

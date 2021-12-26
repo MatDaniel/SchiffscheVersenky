@@ -112,4 +112,7 @@ using SpdLogger = std::shared_ptr<spdlog::logger>;
 
 #define TRACE_FUNTION_PROTO SPDLOG_TRACE("")
 
+#define DECLARE_PSFACTORIED_CLASS(ClassName)\
+class ClassName : public ::PSingletonFactory<ClassName> {\
+	friend class ::PSingletonFactory<ClassName>;
 

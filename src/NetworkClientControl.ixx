@@ -8,7 +8,7 @@ module;
 #include <memory>
 
 export module Network.Client;
-export import Network;
+export import LayerBase;
 using namespace std;
 
 
@@ -196,6 +196,10 @@ export namespace Network::Client {
 			} while (Result > 0);
 
 			return NwRequestPacket::STATUS_REQUEST_COMPLETED;
+		}
+
+		SOCKET GetSocket() const {
+			return GameServer;
 		}
 
 	private:

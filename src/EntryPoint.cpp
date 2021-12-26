@@ -50,7 +50,7 @@ namespace Server {
 			SPDLOG_LOGGER_INFO(LayerLog, "Successfully connected client to server");
 
 			// we now need to notify the game manager of the connecting player
-			auto GameManager = GameController::GetInstance();
+			auto GameManager = GameManager::GetInstance();
 			auto NewPlayer = GameManager->AllocattePlayerWithId(NewClient->GetSocket());
 			if (!NewPlayer) {
 
@@ -109,11 +109,11 @@ namespace Server {
 
 				case ShipSockControl::SHOOT_CELL_CLIENT:
 				{
-					auto GameManager = GameController::GetInstance();
+					auto GameManager = GameManager::GetInstance();
 					auto RequestingClientId = NetworkRequest.RequestingSocket;
 
 					// Get players by id (socket handle)
-					PlayerField* RemotePlayer;
+					GmPlayerField* RemotePlayer;
 					auto RequestingPlayer = GameManager->GetPlayerFieldControllerById(RequestingClientId,
 						&RemotePlayer);
 					if (!RequestingPlayer)
@@ -145,8 +145,8 @@ namespace Server {
 					auto NewCellState = RemotePlayer->StrikeCellAndUpdateShipList(
 						IoPacket->ShootCellLocation);
 					SPDLOG_LOGGER_INFO(LayerLog, "New Cellstate for {{{}:{}}} is {}",
-						IoPacket->ShootCellLocation.XCord,
-						IoPacket->ShootCellLocation.YCord,
+						IoPacket->ShootCellLocation.XComponent,
+						IoPacket->ShootCellLocation.YComponent,
 						NewCellState);
 
 					// Send update notification to all connected clients
@@ -171,7 +171,7 @@ namespace Server {
 				case ShipSockControl::SET_SHIP_LOC_CLIENT:
 				{
 					// Meta setup handle data
-					auto GameManager = GameController::GetInstance();
+					auto GameManager = GameManager::GetInstance();
 					auto RequestingClientId = NetworkRequest.RequestingSocket;
 
 					// Check if type of request is currently accepted in gamestate
@@ -247,10 +247,31 @@ namespace Client {
 		NwRequestPacket& NetworkRequest,
 		void*            UserContext
 	) {
+		TRACE_FUNTION_PROTO;
+
 		switch (NetworkRequest.IoControlCode) {
 		case NwRequestPacket::INCOMING_PACKET:
 
-			SPDLOG_LOGGER_INFO(LayerLog, "Pseudo client message handling here");
+			switch (NetworkRequest.IoControlPacketData->ControlCode) {
+			case ShipSockControl::NO_COMMAND_SERVER:
+				SPDLOG_LOGGER_INFO(LayerLog, "Debug command received, invalid handling");
+				__debugbreak();
+				return (void)NetworkRequest.CompleteIoRequest(NwRequestPacket::STATUS_REQUEST_COMPLETED);
+
+			case ShipSockControl::CELL_STATE_SERVER: {
+				auto GameManager = GameManager::GetInstance();
+
+
+
+			}
+
+			default:
+				break;
+			}
+
+
+
+
 
 
 
@@ -259,6 +280,8 @@ namespace Client {
 		}
 	}
 }
+
+
 
 int main(
 	      int   argc,
@@ -315,7 +338,7 @@ int main(
 
 			// Creating and initializing managers managers
 			auto& ShipSocketObject = *Network::Server::NetworkManager::CreateSingletonOverride(PortNumber);
-			auto& ShipGameObject = *GameController::CreateSingletonOverride({ 6, 6 },
+			auto& ShipGameObject = *GameManager::CreateSingletonOverride({ 6, 6 },
 				{ 2,2,2,2,2 });
 
 			// Run main server handler loop

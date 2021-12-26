@@ -4,9 +4,40 @@ module;
 
 #include "BattleShip.h"
 
-export module Network;
+export module LayerBase;
 using namespace std;
 export SpdLogger NetworkLog;
+
+
+export template<typename T>
+class PSingletonFactory {
+public:
+	template<typename... Args>
+	static T& CreateObject(Args&&... Parameters) {
+		struct EnableMakeUnique : public T {
+			inline EnableMakeUnique(Args&&... ParametersForward)
+				: T(forward<Args>(ParametersForward)...) {};
+		};
+		InstanceObject = make_unique<EnableMakeUnique>(forward<Args>(Parameters)...);
+
+		return *InstanceObject;
+	}
+	static T& GetInstance() {
+		return *InstanceObject;
+	}
+	static void ManualReset() {
+		InstanceObject.reset();
+	}
+
+	// Singleton(const Singleton&) = delete;
+	// Singleton(const Singleton&&) = delete;
+	PSingletonFactory& operator=(const PSingletonFactory&) = delete;
+	PSingletonFactory& operator=(const PSingletonFactory&&) = delete;
+
+private:
+	static inline unique_ptr<T> InstanceObject;
+};
+
 
 
 // Primary networking namespace
@@ -14,13 +45,16 @@ export namespace Network {
 	
 	struct NwRequestBase {
 		enum NwServiceCtl {                  // a control code specifying the type of handling required
+			// Shared commands
 			NO_COMMAND,                      // reserved for @Lima, dont use
-			INCOMING_CONNECTION,
 			INCOMING_PACKET,
 			INCOMING_PACKET_PRIORITIZED,
 			OUTGOING_PACKET_COMPLETE,
 			SOCKET_DISCONNECTED,
 			SERVICE_ERROR_DETECTED,
+			
+			// unique to server
+			INCOMING_CONNECTION,
 		} IoControlCode;
 	
 
@@ -67,19 +101,20 @@ export namespace Network {
 		FACING_WEST = 3
 	};
 
-	struct FieldDimension {
-		uint8_t XDimension,
-			YDimension;
+
+	class PointComponent {
+	public:
+		bool operator==(const PointComponent&) const = default;
+		
+		uint8_t XComponent{},
+			YComponent{},
+			ZComponent{};
 	};
-	struct FieldCoordinate {
-		uint8_t XCord,
-			YCord;
-	};
+
 
 	// Sub packets
-	struct ShipCount {
-		uint8_t ShipCounts[5]{}; // Use enum ShipClass as an index to get the appropriate count associated to type
-
+	class ShipCount {
+	public:
 		uint8_t GetTotalCount() const {
 			TRACE_FUNTION_PROTO;
 
@@ -88,12 +123,14 @@ export namespace Network {
 				TotalCount += ShipCounts[i];
 			return TotalCount;
 		}
+
+		uint8_t ShipCounts[5]{}; // Use enum ShipClass as an index to get the appropriate count associated to type
 	};
 
 	struct ShipState {
 		// Ship base information
 		ShipClass       ShipType;
-		FieldCoordinate Cordinates; // The cords of the ship always specify the location of the front
+		PointComponent Cordinates; // The cords of the ship always specify the location of the front
 		ShipRotation    Rotation;
 
 		// Additional meta data
@@ -106,19 +143,19 @@ export namespace Network {
 		CELL_WAS_SHOT_EMPTY = 2,
 		CELL_WAS_SHOT_IN_USE = 3,
 
-		// These values may only be used to probe and modify an existing state
-		CELL_SHOOT_MERGE_VALUE = 2,
-		CELL_PROBE_WAS_SHOT = 2,
-		CELL_PROBE_USED = 1,
-		CELL_WAS_ALREADY_SHOT = -1,
-		Cell_WAS_DESTRUCTOR = -2
+		// These values may only be used to probe, modify and notify existing states
+		ASSING_SHOOT_MERGE_VALUE = 2,
+		PROBE_CELL_WAS_SHOT = 2,
+		PROBE_CELL_USED = 1,
+		STATUS_WAS_ALREADY_SHOT = -1,
+		STATUS_WAS_DESTRUCTOR = -2
 	};
 	CellState operator &=(CellState& Lhs,
 		const CellState& Rhs) {
 		TRACE_FUNTION_PROTO;
 
 		using CellState_t = underlying_type<CellState>::type;
-		return (CellState)((CellState_t&)Lhs &= (CellState_t)CELL_SHOOT_MERGE_VALUE);
+		return (CellState)((CellState_t&)Lhs &= (CellState_t)ASSING_SHOOT_MERGE_VALUE);
 	}
 
 
@@ -164,20 +201,20 @@ export namespace Network {
 			// SET_SHIP_LOC_CLIENT
 			struct {
 				ShipClass       ShipType;
-				FieldCoordinate ShipsPosition;
+				PointComponent ShipsPosition;
 				ShipRotation    Rotation;
 			} SetShipLocation;
 
 			// SHOOT_CELL_CLIENT
-			FieldCoordinate ShootCellLocation;
+			PointComponent ShootCellLocation;
 
 			// STARTUP_FIELDSIZE
-			FieldDimension GameFieldSizes;
+			PointComponent GameFieldSizes;
 
 
 			// CELL_STATE_SERVER
 			struct {
-				FieldCoordinate Coordinates;
+				PointComponent Coordinates;
 				CellState       State;
 			} CellStateUpdate;
 

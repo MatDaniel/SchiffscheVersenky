@@ -100,8 +100,8 @@
     <ClCompile Include="GameField.ixx" />
     <ClCompile Include="DearImGUI.ixx" />
     <ClCompile Include="GameManagment.ixx" />
+    <ClCompile Include="LimaBase.ixx" />
     <ClCompile Include="NetworkClientControl.ixx" />
-    <ClCompile Include="NetworkControl.ixx" />
     <ClCompile Include="NetworkServerControl.ixx" />
     <ClCompile Include="scenes\FieldSetupScene.ixx" />
     <ClCompile Include="impl\gladimpl.cpp" />

@@ -87,13 +87,13 @@
     <ClCompile Include="NetworkClientControl.ixx">
       <Filter>Source Files\Network</Filter>
     </ClCompile>
-    <ClCompile Include="NetworkControl.ixx">
-      <Filter>Source Files\Network</Filter>
-    </ClCompile>
     <ClCompile Include="NetworkServerControl.ixx">
       <Filter>Source Files\Network</Filter>
     </ClCompile>
     <ClCompile Include="GameManagment.ixx">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="LimaBase.ixx">
       <Filter>Source Files</Filter>
     </ClCompile>
   </ItemGroup>
