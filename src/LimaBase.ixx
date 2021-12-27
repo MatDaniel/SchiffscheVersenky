@@ -4,6 +4,7 @@ module;
 
 #include "BattleShip.h"
 #include <atomic>
+#include <utility>
 
 export module LayerBase;
 using namespace std;
@@ -148,24 +149,28 @@ export namespace Network {
 
 	enum CellState : int8_t {
 		CELL_IS_EMPTY = 0,
-		CELL_IS_IN_USE = 1,
+		CELL_IS_IN_USE,
 		CELL_WAS_SHOT_EMPTY = 2,
-		CELL_WAS_SHOT_IN_USE = 3,
+		CELL_SHIP_WAS_HIT,
+		STATUS_WAS_ALREADY_SHOT = 4,
+		STATUS_WAS_DESTRUCTOR = 8,
 
 		// These values may only be used to probe, modify and notify existing states
-		ASSING_SHOOT_MERGE_VALUE = 2,
 		PROBE_CELL_WAS_SHOT = 2,
 		PROBE_CELL_USED = 1,
-		STATUS_WAS_ALREADY_SHOT = -1,
-		STATUS_WAS_DESTRUCTOR = -2
+		MERGE_SHOOT_CELL = 2,
+		MASK_FILTER_STATE_BITS = 3,
+		REQUIRED_BITS_PRIMARY = 2,
 	};
-	CellState operator &=(CellState& Lhs,
+	CellState& operator |=(CellState& Lhs,
 		const CellState& Rhs) {
 		TRACE_FUNTION_PROTO;
 
 		using CellState_t = underlying_type<CellState>::type;
-		return (CellState)((CellState_t&)Lhs &= (CellState_t)ASSING_SHOOT_MERGE_VALUE);
+		return (CellState&)((CellState_t&)Lhs |= (CellState_t)Rhs);
 	}
+
+
 
 
 	enum ShipControlStatus {

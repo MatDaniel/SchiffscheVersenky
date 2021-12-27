@@ -6,17 +6,14 @@ module;
 #include "BattleShip.h"
 #include <memory>
 #include <map>
+#include <span>
+#include <string>
 
 export module GameManagment;
 import LayerBase;
 using namespace std;
 export SpdLogger GameLog;
 
-
-//
-// TODO: this has to be partially rewritten / ported for shared usage
-// and Server::ManagmentDispatchRoutine has to be addapted to the new layout
-//
 
 
 // Shared game manager namespace
@@ -109,8 +106,8 @@ export namespace GameManagment {
 					ShipCoordinates, ShipOrientation, i);
 
 				// This 2 dimensional loop evaluates all associated cells
-				for (auto y = -1; y < 1; ++y)
-					for (auto x = -1; x < 1; ++x) {
+				for (auto y = -1; y < 2; ++y)
+					for (auto x = -1; x < 2; ++x) {
 
 						// Check for illegal placement and skip invalid addresses outside of frame
 						PointComponent LookupLocation{ IteratorPosition.XComponent + x,
@@ -122,20 +119,32 @@ export namespace GameManagment {
 							continue;
 
 						// Lookup location and apply test, construct collision list from there
-						if (GetCellReferenceByCoordinates(LookupLocation) != CELL_IS_EMPTY) {
+						auto CellstateOfLookup = GetCellReferenceByCoordinates(LookupLocation);
+						if (CellstateOfLookup & PROBE_CELL_USED) {
 
-							bool NotReported = true;
+							// Assume which type of collision we are dealing with, this may not be final
+							auto TypeOfCollision = LookupLocation == IteratorPosition 
+								? STATUS_DIRECT_COLLIDE : STATUS_INDIRECT_COLLIDE;
+
+							// Check if location has already been reported or updated to direct if falsely reported as indirect
+							bool IsAlreadyReported = false;
 							for (auto& [ReportedLocation, StatusMessage] : ProbeList)
-								if (LookupLocation == ReportedLocation) {
-									NotReported = false; break;
-								}
+								if (ReportedLocation == LookupLocation) {
+									if (ReportedLocation == IteratorPosition &&
+										StatusMessage == STATUS_INDIRECT_COLLIDE) {
+										StatusMessage = STATUS_DIRECT_COLLIDE;
 
-							if (NotReported)
-								ProbeList.emplace_back(ProbeStatusList::value_type{ LookupLocation,
-									LookupLocation == IteratorPosition ? STATUS_DIRECT_COLLIDE : STATUS_INDIRECT_COLLIDE }),
+										SPDLOG_LOGGER_WARN(GameLog, "Updated collision state of {{{}:{}}} to direct",
+											ReportedLocation.XComponent, ReportedLocation.YComponent);
+									}
+									
+									IsAlreadyReported = true; break;
+								}
+							if (!IsAlreadyReported)
+								ProbeList.emplace_back(ProbeStatusList::value_type{ LookupLocation, TypeOfCollision }),
 								SPDLOG_LOGGER_WARN(GameLog, "Reported {} at {{{}:{}}}",
 									LookupLocation == IteratorPosition ? "collision" : "touching",
-									LookupLocation.YComponent, FieldDimensions.YComponent);
+									LookupLocation.XComponent, LookupLocation.YComponent);
 						}
 					}
 			}
@@ -192,7 +201,6 @@ export namespace GameManagment {
 			return STATUS_SHIP_PLACED;
 		}
 
-
 		ShipState* GetShipEntryForCordinate( // Searches the shipstate list for an entry that contains a ship colliding with said coords
 			PointComponent Cordinates
 		) {
@@ -209,8 +217,9 @@ export namespace GameManagment {
 						ShipEntry, i);
 					if (IteratorPosition.XComponent == Cordinates.XComponent &&
 						IteratorPosition.YComponent == Cordinates.YComponent)
-						return SPDLOG_LOGGER_INFO(GameLog, "Found ship at {{{}:{}}}",
-							IteratorPosition.XComponent, IteratorPosition.YComponent), 
+						return SPDLOG_LOGGER_INFO(GameLog, "Found ship at {{{}:{}}}, for {{{}:{}}}",
+							ShipEntry.Cordinates.XComponent, ShipEntry.Cordinates.YComponent,
+							Cordinates.XComponent, Cordinates.YComponent),
 							&ShipEntry;
 				}
 			}
@@ -224,17 +233,19 @@ export namespace GameManagment {
 		                                       // This will update the grid array and the shipstate list
 			PointComponent TargetCoordinates
 		) {
+			using Network::CellState;
 			TRACE_FUNTION_PROTO;
 
 			// Test and shoot cell in grid
-			using Network::CellState;
 			auto& LocalCell = GetCellReferenceByCoordinates(TargetCoordinates);
 			if (LocalCell & PROBE_CELL_WAS_SHOT)
-				return STATUS_WAS_ALREADY_SHOT;
-			LocalCell &= ASSING_SHOOT_MERGE_VALUE;
+				return SPDLOG_LOGGER_ERROR(GameLog, "Location {{{}:{}}} was struck multiple times",
+					TargetCoordinates.XComponent, TargetCoordinates.YComponent),
+				LocalCell |= STATUS_WAS_ALREADY_SHOT;
+			LocalCell |= MERGE_SHOOT_CELL;
 
-			// Check if Cell is within a ship, in which case the we Locate the ship and Check for the destruction of the ship
-			if (!LocalCell & PROBE_CELL_USED)
+			// Check if cell is within a ship, in which case we locate the ship and check for the destruction of the ship
+			if (!(LocalCell & PROBE_CELL_USED))
 				return LocalCell;
 
 			auto ShipEntry = GetShipEntryForCordinate(TargetCoordinates);
@@ -243,29 +254,46 @@ export namespace GameManagment {
 				// Enumerate all cells and test for non destroyed cell
 				auto IteratorPosition = CalculateCordinatesOfPartByDistanceWithShip(
 					*ShipEntry, i);
-				if (GetCellReferenceByCoordinates(IteratorPosition) != CELL_WAS_SHOT_IN_USE)
-					return SPDLOG_LOGGER_INFO(GameLog, "Ship at {{{}:{}}} was succesfully hit",
-						ShipEntry->Cordinates.XComponent, ShipEntry->Cordinates.YComponent),
+				if ((GetCellReferenceByCoordinates(IteratorPosition) & MASK_FILTER_STATE_BITS) != CELL_SHIP_WAS_HIT)
+					return SPDLOG_LOGGER_INFO(GameLog, "Ship at {{{}:{}}} was hit in {{{}:{}}}",
+						ShipEntry->Cordinates.XComponent, ShipEntry->Cordinates.YComponent,
+						TargetCoordinates.XComponent, TargetCoordinates.YComponent),
 					LocalCell;
 			}
 
 			SPDLOG_LOGGER_INFO(GameLog, "Ship at {{{}:{}}} was sunken",
 				ShipEntry->Cordinates.XComponent, ShipEntry->Cordinates.YComponent);
-			return STATUS_WAS_DESTRUCTOR;
+			return LocalCell |= STATUS_WAS_DESTRUCTOR;
 		}
 
 
 
-		const ShipCount& GetInternalShipNumbersReference() const {
-			TRACE_FUNTION_PROTO; return NumberOfShipsPerType;
+		// TODO: Deuglify this class this is a mess but ehh....
+		CellState GetCellStateByCoordinates(
+			const PointComponent Cordinates
+		) const {
+			TRACE_FUNTION_PROTO; return GetCellReferenceByCoordinates(Cordinates);
 		}
+
+
+		auto GetShipStateList() {
+			TRACE_FUNTION_PROTO; return span(FieldShipStates);
+		}
+
+
+		// Quick Utility Helpers
 		uint8_t GetNumberOfShipsPlaced() const {
 			TRACE_FUNTION_PROTO; return FieldShipStates.size();
 		}
-
 		bool operator==(const GmPlayerField& Other) const {
 			TRACE_FUNTION_PROTO; return this == &Other;
 		}
+
+
+
+		// Initilization constants
+		const PointComponent    FieldDimensions;
+		const ShipCount         NumberOfShipsPerType;
 
 	private:
 		PointComponent CalculateCordinatesOfPartByDistanceWithShip(
@@ -275,14 +303,16 @@ export namespace GameManagment {
 		) const {
 			TRACE_FUNTION_PROTO;
 
-			return {
-					.XComponent = (uint8_t)(ShipLocation.XComponent
-						+ ((DistanceToWalk * (-1 * (ShipOrientation >> 1)))
-							* (ShipOrientation % 2)) - 1),
-					.YComponent = (uint8_t)(ShipLocation.YComponent
-						+ ((DistanceToWalk * (-1 * (ShipOrientation >> 1)))
-							* ((ShipOrientation + 1) % 2)) - 1)
-			};
+			switch (ShipOrientation) {
+			case FACING_NORTH:
+				return PointComponent{ ShipLocation.XComponent, (uint8_t)(ShipLocation.YComponent + DistanceToWalk) };
+			case FACING_EAST:
+				return PointComponent{ (uint8_t)(ShipLocation.XComponent - DistanceToWalk), ShipLocation.YComponent };
+			case FACING_SOUTH:
+				return PointComponent{ ShipLocation.XComponent, (uint8_t)(ShipLocation.YComponent - DistanceToWalk) };
+			case FACING_WEST:
+				return PointComponent{ (uint8_t)(ShipLocation.XComponent + DistanceToWalk), ShipLocation.YComponent };
+			}
 		}
 		PointComponent CalculateCordinatesOfPartByDistanceWithShip(
 			const ShipState& BaseShipData,
@@ -304,14 +334,94 @@ export namespace GameManagment {
 		}
 
 		unique_ptr<CellState[]> FieldCellStates;
-		PointComponent          FieldDimensions;
 		vector<ShipState>       FieldShipStates;
-		ShipCount               NumberOfShipsPerType;
 	};
 
+	// GmPlayerField debug printer v2 legend / symbolic explanation:
+	// Prints the content of 1 or 2 fields reporting the state of the 2d matrix
+	// Each cell is split into 2 chars like [[PrimaryState][Status]]
+	// [PrimaryState] : 'EMPTY' -> Cell is untouched, aka water
+	//                  '|'/'=' -> Cell is part of a ship, rotation aware
+	//                  'O'/'X' -> Cell was a miss or a ship being hit
+	//                  'E'     -> Short for error, the cell is invalid
+	//       [Status] : 'EMPTY' -> No special state, generally the case
+	//                  'd'     -> The cell was hit at least 2 times, invalid
+	//                  'k'     -> This cell was resposible for sinking a ship
+	//                  'D'     -> just like 'k' except it was hit again afterwards
+	export void Debug_PrintGmPlayerField(
+		GameManagment::GmPlayerField& MyPlayerField_Left,
+		GameManagment::GmPlayerField* OpponentPlayer = nullptr
+	) {
+		TRACE_FUNTION_PROTO;
+
+		constexpr char AlphapectiCordLookup[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
+		string FieldFormat{ "-> GmPlayerField debug Printer v2:\n   |" };
+
+		auto TransformCellstateToText = [&FieldFormat](
+			GmPlayerField& PlayerField,
+			PointComponent Cordinates
+			) -> void {
+				TRACE_FUNTION_PROTO;
+
+				auto State = PlayerField.GetCellStateByCoordinates(Cordinates);
+				auto AssociatedShip = State & PROBE_CELL_USED ?
+					PlayerField.GetShipEntryForCordinate(Cordinates) : nullptr;
+				char Printable = AssociatedShip ? "  |=OOXX"[(State & MASK_FILTER_STATE_BITS) * 2
+					+ (AssociatedShip->Rotation & 1)]
+					: " EOX"[State & MASK_FILTER_STATE_BITS];
+				char Property = " dkD"[(State >> REQUIRED_BITS_PRIMARY) & MASK_FILTER_STATE_BITS];
+				FieldFormat.append({ Printable, Property });
+		};
+
+		try {
+			for (auto i = 0; i < MyPlayerField_Left.FieldDimensions.XComponent; ++i)
+				FieldFormat.append({ AlphapectiCordLookup[i], ' ' });
+			if (OpponentPlayer) {
+				FieldFormat.append("|    |");
+				for (auto i = 0; i < MyPlayerField_Left.FieldDimensions.XComponent; ++i)
+					FieldFormat.append({ AlphapectiCordLookup[i], ' ' });
+			}
+
+			FieldFormat.append(fmt::format(!OpponentPlayer ? "|\n---+{0:-^{1}}+\n"
+				: "|\n---+{0:-^{1}}+ ---+{0:-^{1}}+\n",
+				"", MyPlayerField_Left.FieldDimensions.XComponent * 2));
+
+			for (auto i = 0; i < MyPlayerField_Left.FieldDimensions.YComponent; ++i) {
+
+				FieldFormat.append(fmt::format("{:>2d} |", i));
+				for (auto j = 0; j < MyPlayerField_Left.FieldDimensions.XComponent; ++j)
+					TransformCellstateToText(MyPlayerField_Left,
+						PointComponent{ (uint8_t)j, (uint8_t)i });
+
+				FieldFormat.append(!OpponentPlayer ? "|"
+					: fmt::format("| {:>2d} |", i));
+				if (OpponentPlayer) {
+					for (auto j = 0; j < MyPlayerField_Left.FieldDimensions.XComponent; ++j)
+						TransformCellstateToText(*OpponentPlayer,
+							PointComponent{ (uint8_t)j, (uint8_t)i });
+
+					FieldFormat.push_back('|');
+				}
+
+				FieldFormat.push_back('\n');
+			}
+
+			FieldFormat.append(fmt::format(!OpponentPlayer ? "---+{0:-^{1}}+\n"
+				: "---+{0:-^{1}}+ ---+{0:-^{1}}+\n",
+				"", MyPlayerField_Left.FieldDimensions.XComponent * 2));
+
+			SPDLOG_LOGGER_DEBUG(GameLog, FieldFormat);
+		}
+		catch (const fmt::format_error& ExceptionInformation) {
+
+			SPDLOG_LOGGER_ERROR(GameLog, "fmt failed to format string: \"{}\"",
+				ExceptionInformation.what());
+		}
+	}
 
 
-	// Helper structures
+
+	// Helper structures, TODO: move this into GameManger2
 	enum GamePhase {
 		INVALID_PHASE = -1,
 		SETUP_PHASE,
@@ -323,8 +433,7 @@ export namespace GameManagment {
 
 	// The primary interface, this gives full control of the game and forwards other functionality
 	class GameManager2 final
-		: public MagicInstanceManagerBase<GameManager2>,
-		  private WsaNetworkBase {
+		: public MagicInstanceManagerBase<GameManager2> {
 		friend class MagicInstanceManagerBase<GameManager2>;
 	public:
 		enum GameManagerStatus {
@@ -382,7 +491,7 @@ export namespace GameManagment {
 
 			// Check if players have all their ships placed
 			for (const auto& [Key, PlayerFieldController] : PlayerFieldData)
-				if (PlayerFieldController.GetInternalShipNumbersReference().GetTotalCount() <
+				if (PlayerFieldController.NumberOfShipsPerType.GetTotalCount() <
 					PlayerFieldController.GetNumberOfShipsPlaced())
 					return SPDLOG_LOGGER_WARN(GameLog, "Not all ships of Player [{:04x}] have been placed",
 						Key), STATUS_NOT_ALL_PLACED;

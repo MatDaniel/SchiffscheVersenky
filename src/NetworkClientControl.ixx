@@ -112,7 +112,7 @@ export namespace Network::Client {
 					switch (auto SocketErrorCode = WSAGetLastError()) {
 					case WSAEWOULDBLOCK:
 						Result = 0;
-						SPDLOG_LOGGER_TRACE("No (more) request to handle");
+						SPDLOG_LOGGER_TRACE(NetworkLog, "No (more) request to handle");
 						break;
 
 					case WSAECONNRESET:

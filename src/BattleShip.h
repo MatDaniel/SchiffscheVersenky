@@ -10,6 +10,7 @@
 
 // Spdlog config and imports
 #include <spdlog/tweakme.h>
+#define SPDLOG_ACTIVE_LEVEL SPDLOG_LEVEL_TRACE
 #define NOMINMAX
 #include <spdlog/spdlog.h>
 #include <spdlog/sinks/stdout_color_sinks.h>

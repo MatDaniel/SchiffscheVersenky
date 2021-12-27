@@ -1,7 +1,6 @@
 // Entrypoint of client and server, this implements the layer manager,
 // responsible for the connection between the game, network manager and the engine,
 // as well as implementing the handling for client and server operation modes
-#define SPDLOG_ACTIVE_LEVEL SPDLOG_LEVEL_TRACE
 #include "BattleShip.h"
 #include <memory>
 #include <string_view>
@@ -27,6 +26,49 @@ import Scenes.FieldSetup;
 // Layer manager logging object
 SpdLogger LayerLog;
 
+void GmManagerUnitTests() {
+	// Unit tests
+	auto& Manager = GameManager2::CreateObject(
+		PointComponent{ 12, 12 },
+		ShipCount{ 2, 2, 2, 2, 2 });
+	auto MyField = Manager.TryAllocatePlayerWithId(32);
+	auto OpponentField = Manager.TryAllocatePlayerWithId(48);
+
+	auto PlaceShipStatus = MyField->PlaceShipSecureCheckInterference(
+		ShipClass::CARRIER_5x1,
+		ShipRotation::FACING_NORTH,
+		PointComponent{ 3, 3 });
+	PlaceShipStatus = MyField->PlaceShipSecureCheckInterference(
+		ShipClass::CARRIER_5x1,
+		ShipRotation::FACING_WEST,
+		PointComponent{ 1, 5 });
+	PlaceShipStatus = MyField->PlaceShipSecureCheckInterference(
+		ShipClass::CARRIER_5x1,
+		ShipRotation::FACING_WEST,
+		PointComponent{ 8, 8 });
+
+	MyField->StrikeCellAndUpdateShipList(PointComponent{ 4, 6 });
+	MyField->StrikeCellAndUpdateShipList(PointComponent{ 3, 7 });
+	MyField->StrikeCellAndUpdateShipList(PointComponent{ 2, 8 });
+	MyField->StrikeCellAndUpdateShipList(PointComponent{ 2, 4 });
+	MyField->StrikeCellAndUpdateShipList(PointComponent{ 8, 8 });
+	MyField->StrikeCellAndUpdateShipList(PointComponent{ 1, 5 });
+
+	Debug_PrintGmPlayerField(*MyField, OpponentField);
+
+	MyField->StrikeCellAndUpdateShipList(PointComponent{ 2, 3 });
+	MyField->StrikeCellAndUpdateShipList(PointComponent{ 2, 4 });
+	MyField->StrikeCellAndUpdateShipList(PointComponent{ 2, 5 });
+	MyField->StrikeCellAndUpdateShipList(PointComponent{ 2, 6 });
+
+	Debug_PrintGmPlayerField(*MyField, OpponentField);
+
+	MyField->StrikeCellAndUpdateShipList(PointComponent{ 2, 6 });
+	Debug_PrintGmPlayerField(*MyField, OpponentField);
+
+	__debugbreak();
+}
+
 #if 0
 
 // Internal server controller and server related utilities/parts of the layer manager
@@ -36,7 +78,7 @@ namespace Server {
 	void ManagmentDispatchRoutine(
 		NetworkManager2& NetworkDevice,
 		NwRequestPacket& NetworkRequest,
-		void*            UserContext
+		void* UserContext
 	) {
 		TRACE_FUNTION_PROTO;
 
@@ -73,7 +115,7 @@ namespace Server {
 				});
 			if (Result < 0)
 				return NetworkRequest.CompleteIoRequest(NwRequestPacket::STATUS_REQUEST_ERROR),
-					SPDLOG_LOGGER_ERROR(LayerLog, "Failed to transmit field size data to client");
+				SPDLOG_LOGGER_ERROR(LayerLog, "Failed to transmit field size data to client");
 			auto Result = NewClient->SendShipControlPackageDynamic(ShipSockControl{
 					.ControlCode = ShipSockControl::STARTUP_SHIPCOUNTS,
 					.GameShipNumbers = GameManager.InternalShipCount
@@ -85,7 +127,7 @@ namespace Server {
 			NetworkRequest.CompleteIoRequest(NwRequestPacket::STATUS_REQUEST_COMPLETED);
 			SPDLOG_LOGGER_INFO(LayerLog, "Successfully allocated and associated client to player");
 		}
-			break;
+												 break;
 
 		case NwRequestPacket::INCOMING_PACKET: {
 
@@ -121,10 +163,10 @@ namespace Server {
 
 				case ShipSockControl::SHOOT_CELL_CLIENT: {
 					auto GameManager = GameManager2::GetInstance();
-					
+
 					// Check if we are in game phase
 					if (GameManager.GetCurrentGamePhase() != GamePhase::GAME_PHASE) {
-						
+
 						// Currently not in the corerct gamephase, notify caller
 						auto Client = NetworkDevice.GetClientBySocket(RequestingClientId);
 						if (!Client)
@@ -145,26 +187,26 @@ namespace Server {
 
 
 					}
-					
-					
-					
+
+
+
 					auto RequestingClientId = NetworkRequest.RequestingSocket;
 
 					// Check if the requesting player is
 					auto RequestingPlayerField = GameManager.GetPlayerFieldByoperation(
 						GameManager2::GET_PLAYER_BY_ID,
 						RequestingClientId);
-					if(!RequestingPlayerField)
+					if (!RequestingPlayerField)
 
-					// Get players by id (socket handle)
-					auto PlayerOfCurrentTurn = GameManager.GetPlayerFieldByOperation(
-						GameManager2::PLAYER_BY_TURN,
-						INVALID_SOCKET);
+						// Get players by id (socket handle)
+						auto PlayerOfCurrentTurn = GameManager.GetPlayerFieldByOperation(
+							GameManager2::PLAYER_BY_TURN,
+							INVALID_SOCKET);
 					auto
-					
-					
-					auto RemotePlayers = GameManager.GetFieldControllerPairById(
-						RequestingClientId);
+
+
+						auto RemotePlayers = GameManager.GetFieldControllerPairById(
+							RequestingClientId);
 
 					if (!RequestingPlayer)
 						return NetworkRequest.CompleteIoRequest(NwRequestPacket::STATUS_REQUEST_IGNORED),
@@ -216,7 +258,7 @@ namespace Server {
 					SPDLOG_LOGGER_INFO(LayerLog, "Updated all clients");
 					NetworkRequest.CompleteIoRequest(NwRequestPacket::STATUS_REQUEST_COMPLETED);
 				}
-				break;
+													   break;
 
 				case ShipSockControl::SET_SHIP_LOC_CLIENT:
 				{
@@ -274,7 +316,7 @@ namespace Server {
 				}
 			}
 		}
-		break;
+											 break;
 
 		case NwRequestPacket::SOCKET_DISCONNECTED:
 			NetworkRequest.CompleteIoRequest(NwRequestPacket::STATUS_REQUEST_COMPLETED);
@@ -295,7 +337,7 @@ namespace Client {
 	void ManagementDispatchRoutine(
 		NetworkManager2& NetworkDevice,
 		NwRequestPacket& NetworkRequest,
-		void*            UserContext
+		void* UserContext
 	) {
 		TRACE_FUNTION_PROTO;
 
@@ -333,8 +375,9 @@ namespace Client {
 #endif
 
 
+
 int main(
-	      int   argc,
+	int   argc,
 	const char* argv[]
 ) {
 	// Creating Loggers, we need multiple for each components (Game, Network, Layer, Renderer and etc.)
@@ -346,6 +389,7 @@ int main(
 		EngineLog = spdlog::stdout_color_st("Engine");
 		WindowLog = spdlog::stdout_color_st("Window");
 		DearImGUILog = spdlog::stdout_color_st("ImGUI");
+		
 		spdlog::set_pattern(SPDLOG_SMALL_PATTERN);
 		spdlog::set_level(spdlog::level::debug);
 		SPDLOG_LOGGER_INFO(LayerLog, "Initialized Spdlog loggers");
@@ -357,6 +401,7 @@ int main(
 		return EXIT_FAILURE;
 	}
 
+	// GmManagerUnitTests();
 
 
 	// Parse input arguments (TODO: actually doing it)
@@ -369,12 +414,12 @@ int main(
 #define IF_MINIMUM_PASSED_ARGUMENTS(Minimum) if (argc > Minimum)
 #define DEREF_ARGUMENT_AT_INDEX(Index) argv[Index+1]
 	IF_MINIMUM_PASSED_ARGUMENTS(1) {
-		
+
 		// Check if the passed argument indicates that we are running as server
 		CurrentRequestStartupType = !string_view(DEREF_ARGUMENT_AT_INDEX(0)).compare("s") ?
 			APPLICATION_IS_SERVER : CurrentRequestStartupType;
 	}
-	
+
 	long Result = 0;
 
 
@@ -383,11 +428,11 @@ int main(
 	try {
 		switch (CurrentRequestStartupType) {
 		case APPLICATION_IS_SERVER: {
-			
+
 			// Parse server specific command line arguments
-			auto PortNumber = DefaultPortNumber;		
+			auto PortNumber = DefaultPortNumber;
 			IF_MINIMUM_PASSED_ARGUMENTS(2)
-				PortNumber = DEREF_ARGUMENT_AT_INDEX(1);		
+				PortNumber = DEREF_ARGUMENT_AT_INDEX(1);
 
 
 #if 0
@@ -409,7 +454,7 @@ int main(
 #endif
 			SPDLOG_LOGGER_INFO(LayerLog, "Server successfully terminated, shutting down and good night :D");
 		}
-			break;
+								  break;
 
 		case APPLICATION_IS_CLIENT: {
 
