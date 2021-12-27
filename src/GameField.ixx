@@ -9,12 +9,13 @@ module;
 #include <imgui.h>
 
 #include "Vertex.hpp"
-
+#include "resource.h"
 
 export module Game.GameField;
 import Draw.Resources;
 import Draw.Renderer;
 import Draw.Window;
+import Game.ShipInfo;
 
 constexpr float BorderSize = 0.1F;
 constexpr glm::vec3 UpNormal = glm::vec3(0.0F, 1.0F, 0.0F);
@@ -81,6 +82,9 @@ public:
 
 		assert(width != 0 && height != 0); // Size is required to be at least 1x1
 
+		for (size_t i = 0; i < ShipCount; i++)
+			m_shipModels[i] = Resources::find<Model>(ShipInfos[i].resName);
+
 		std::vector<Vertex> vertices;
 		std::vector<uint32_t> indices;
 		std::vector<Model::Part> parts;
@@ -126,10 +130,10 @@ public:
 			topLeftPos = glm::vec2(0.5F, 0.5F);
 		}
 
-		// Setup top-left mid-square position
-		m_topLeftMidSqPos = glm::vec2(
-			-topLeftPos.x + 0.5F * m_sqaureSize + borderSize,
-			topLeftPos.y - 0.5F * m_sqaureSize - borderSize
+		// Setup top-left position
+		m_topLeftPos = glm::vec2(
+		    borderSize - topLeftPos.x,
+			topLeftPos.y - borderSize
 		);
 
 		// Setup border info: offset
@@ -178,6 +182,10 @@ public:
 		// Upload model
 		m_model = Model(vertices, indices, parts);
 
+		// Calculate ship scaling
+		float shipScale = m_sqaureSize / 10.0F;
+		m_shipScale = glm::scale(glm::mat4(1.0F), glm::vec3(shipScale, shipScale, shipScale));
+
 	}
 
 	~GameField()
@@ -224,13 +232,7 @@ public:
 		size_t i = 0;
 		for (uint32_t y = 0; y < m_height; y++)
 			for (uint32_t x = 0; x < m_width; x++, i++)
-			{
-				m_fieldSquareTransforms[i] = glm::translate(transform, glm::vec3(
-					m_topLeftMidSqPos.y - y * m_sqaureSize,
-					0.0F,
-					m_topLeftMidSqPos.x + x * m_sqaureSize)
-				);
-			}
+				m_fieldSquareTransforms[i] = calcTransform({ x + 0.5F, y + 0.5F });
 	}
 
 	size_t size() const noexcept
@@ -259,21 +261,21 @@ public:
 		// Calculate top left & top right corner position in the opengl canvas
 		auto& ubo = renderer.ubo();
 		glm::vec2 topLeft = ubo.projMtx * ubo.viewMtx * m_transform * glm::vec4(
-			m_topLeftMidSqPos.y + (m_sqaureSize / 2),
+			m_topLeftPos.y,
 			0.0F,
-			m_topLeftMidSqPos.x - (m_sqaureSize / 2),
+			m_topLeftPos.x,
 			1.0F
 		);
 		glm::vec2 botRight = ubo.projMtx * ubo.viewMtx * m_transform * glm::vec4(
-			m_topLeftMidSqPos.y - ((m_height - 0.5F) * m_sqaureSize),
+			m_topLeftPos.y - (m_height * m_sqaureSize),
 			0.0F,
-			m_topLeftMidSqPos.x + ((m_width - 0.5F) * m_sqaureSize),
+			m_topLeftPos.x + (m_width * m_sqaureSize),
 			1.0F
 		);
 		
 		// Convert cursor glfw position to an opengl canvas position
-		auto cursorPos = Window::Properties::cursorPos();
-		auto winSize = Window::Properties::windowSize();
+		auto cursorPos = Window::Properties::CursorPos;
+		auto winSize = Window::Properties::WindowSize;
 		auto cursorPosGL = glm::vec2(
 			(cursorPos.x / (winSize.x - 1)) *  2.0F - 1.0F,
 			(cursorPos.y / (winSize.y - 1)) * -2.0F + 1.0F
@@ -299,6 +301,91 @@ public:
 
 	}
 
+	ShipPosition shipPos(glm::vec2 pos, ShipType type)
+	{
+
+		// Get ship info
+		auto& info = ShipInfos[type];
+		bool odd = info.size % 2;
+
+		// Get mouse location (without floating point)
+		auto flooredPosition = glm::floor(pos);
+		glm::vec2 limits{ m_width, m_height };
+
+		// Get ship direction
+		auto pointerTarget = glm::clamp(
+			flooredPosition + glm::vec2(0.5F, 0.5F),
+			{ 0.5F, 0.5F },
+			limits - glm::vec2(0.5F, 0.5F)
+		);
+		auto shipDirection = pos - pointerTarget;
+		bool horizontal = glm::abs(shipDirection.x) > glm::abs(shipDirection.y);
+
+		// Setup Primary / Secondary
+		typedef float glm::vec2::*FloatMemPointer;
+		FloatMemPointer primary, secondary;
+		if (horizontal)
+		{
+			primary = &glm::vec2::template x;
+			secondary = &glm::vec2::template y;
+		}
+		else
+		{
+			primary = &glm::vec2::template y;
+			secondary = &glm::vec2::template x;
+		}
+
+		// Get forward
+		bool forward;
+		float halfSize = info.size / 2.0F;
+		if (pos.*primary < halfSize)
+			forward = false;
+		else if (pos.*primary > limits.*primary - halfSize)
+			forward = true;
+		else
+			forward = shipDirection.*primary >= 0.0F;
+
+		// Calculate position on the game field
+		glm::vec2 result;
+		result.*primary = flooredPosition.*primary;
+		if (forward)
+		{
+			if (odd) result.*primary += 0.5F;
+			result.*primary = glm::min(result.*primary, limits.*primary - halfSize);
+		}
+		else
+		{
+			if (odd) result.*primary -= 0.5F;
+			result.*primary = glm::max(result.*primary, halfSize - 1.0F) + 1.0F;
+		}
+		result.*secondary = glm::clamp(flooredPosition.*secondary, 0.0F, limits.*secondary - 1.0F) + 0.5F;
+
+		// Calculate looking direction of the ship (enum)
+		uint8_t sdir = (horizontal ? SD_HORIZONTAL : SD_VERTICAL)
+					 | (forward    ? SD_FORWARD    : SD_BACKWARDS);
+
+		// Return ship position
+		return ShipPosition {
+			.position = result,
+			.direction = (ShipDirection)sdir
+		};
+
+	}
+
+	glm::mat4 calcTransform(glm::vec2 pos, float height = 0.0F)
+	{
+		return glm::translate(m_transform, glm::vec3(
+			m_topLeftPos.y - pos.y * m_sqaureSize,
+			height,
+			m_topLeftPos.x + pos.x * m_sqaureSize)
+		);
+	}
+
+	void render(SceneRenderer& renderer, ShipPosition& pos, ShipType type)
+	{
+		renderer.draw(calcTransform(pos.position, 1.0F) * m_shipScale * ShipRotations[pos.direction], m_shipModels[type]);
+	}
+
 private:
 
 	// Info
@@ -317,10 +404,14 @@ private:
 	glm::mat4* m_fieldSquareTransforms;
 
 	// Field data required for translation
-	glm::vec2 m_topLeftMidSqPos;
+	glm::vec2 m_topLeftPos;
 	float m_sqaureSize;
 
 	// Border info
 	Model::IndexInfo m_borderInfo;
+
+	// Data for rendering ships
+	glm::mat4 m_shipScale;
+	Model* m_shipModels[ShipCount];
 	
 };

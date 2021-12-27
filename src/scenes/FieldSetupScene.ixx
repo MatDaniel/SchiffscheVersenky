@@ -14,12 +14,13 @@ import Draw.Engine;
 import Draw.Resources;
 import Draw.Renderer;
 import Game.GameField;
+import Game.ShipInfo;
 
 export class FieldSetupScene final : public Scene
 {
 public:
 
-	void onInit() override
+	void OnInit() override
 	{
 
 		auto& info = renderer.info();
@@ -48,7 +49,7 @@ public:
 
 	}
 
-	void onDraw() override
+	void OnDraw() override
 	{
 		// Clear screen
 		//--------------
@@ -62,11 +63,19 @@ public:
 		ImGui::Begin("GameField Debug", nullptr, ImGuiWindowFlags_NoSavedSettings);
 		auto selected = gameField.cursorPos(renderer);
 		ImGui::Text("Selected Field: { %f ; %f }", selected.x, selected.y);
+		ImGui::Combo("Ship Type", &selectedType, [](void* data, int idx, const char** out) -> bool {
+			*out = ShipInfos[idx].name;
+			return true;
+		}, nullptr, ShipCount);
+		auto shipPos = gameField.shipPos(selected, (ShipType)selectedType);
+		ImGui::Text("Ship position: { %f ; %f }", shipPos.position.x, shipPos.position.y);
+		ImGui::Text("Ship direction: %d", shipPos.direction);
+		gameField.render(renderer, shipPos, (ShipType)selectedType);
 		ImGui::End();
 
 	}
 
-	void onWindowResize() override
+	void OnWindowResize() override
 	{
 		renderer.uploadCamera();
 		renderer.uploadProjection();
@@ -78,5 +87,7 @@ private:
 
 	// Resources
 	GameField gameField { 12, 12 };
+
+	int selectedType = 0;
 	
 };

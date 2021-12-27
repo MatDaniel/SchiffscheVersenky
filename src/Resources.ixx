@@ -28,6 +28,7 @@ module;
 
 export module Draw.Resources;
 import Draw.Renderer.Input;
+import Game.ShipInfo;
 
 // -- Resource Store --
 // A unified place for any Resource.
@@ -954,7 +955,7 @@ export SHIV_FNV_HASH(Model::IndexInfo)
 export namespace Resources
 {
 
-	void init()
+	void Init()
 	{
 
 		// Shader Stages
@@ -971,13 +972,16 @@ export namespace Resources
 		// Materials
 		Resources::emplace<Material>("Border", cel_prog, dummy_tex, glm::vec4(1.0F, 1.0F, 1.0F, 1.0F));
 		Resources::emplace<Material>("Water", cel_prog, dummy_tex, glm::vec4(0.18F, 0.33F, 1.0F, 1.0F));
+		Resources::emplace<Material>("Iron", cel_prog, dummy_tex, glm::vec4(0.8F, 0.8F, 0.8F, 1.0F));
 
 		// Models
 		Resources::emplace<Model>("Teapot", Resource(IDR_MESH_TEAPOT));
+		for (size_t i = 0; i < ShipCount; i++)
+			Resources::emplace<Model>(ShipInfos[i].resName, Resource(ShipInfos[i].resId));
 
 	}
 
-	void cleanUp()
+	void CleanUp()
 	{
 		Resources::clear<Model>();
 		Resources::clear<Material>();

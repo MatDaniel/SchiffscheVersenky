@@ -11,3 +11,8 @@ IDR_FSHA_CEL        RT_RCDATA "res\\shaders\\cel.frag"
 
 // Meshes
 IDR_MESH_TEAPOT     RT_RCDATA "res\\models\\teapot.obj"
+IDR_MESH_SHIP_DSTR  RT_RCDATA "res\\models\\ship_destroyer.obj"
+IDR_MESH_SHIP_SUBM  RT_RCDATA "res\\models\\ship_destroyer.obj"
+IDR_MESH_SHIP_CRUS  RT_RCDATA "res\\models\\ship_destroyer.obj"
+IDR_MESH_SHIP_BTLE  RT_RCDATA "res\\models\\ship_destroyer.obj"
+IDR_MESH_SHIP_CARR  RT_RCDATA "res\\models\\ship_destroyer.obj"

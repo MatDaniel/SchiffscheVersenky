@@ -343,9 +343,12 @@ int main(
 		LayerLog = spdlog::stdout_color_st("Layer");
 		GameLog = spdlog::stdout_color_st("Game");
 		NetworkLog = spdlog::stdout_color_st("Network");
+		EngineLog = spdlog::stdout_color_st("Engine");
+		WindowLog = spdlog::stdout_color_st("Window");
+		DearImGUILog = spdlog::stdout_color_st("ImGUI");
 		spdlog::set_pattern(SPDLOG_SMALL_PATTERN);
 		spdlog::set_level(spdlog::level::debug);
-		SPDLOG_LOGGER_INFO(LayerLog, "Initilized Spdlog loggers");
+		SPDLOG_LOGGER_INFO(LayerLog, "Initialized Spdlog loggers");
 	}
 	catch (const spdlog::spdlog_ex& ExceptionInformation) {
 
@@ -439,33 +442,33 @@ int main(
 			// Unit test code for client, we will merge this together later (aka the network io into the engine)
 			{
 				// Initialize the window
-				if (!Window::init())
+				if (!Window::Init())
 					return EXIT_FAILURE;
 
 				// Initialize the engine
-				if (!Engine::init())
+				if (!Engine::Init())
 				{
-					Window::cleanUp(); // Clean up the window on failure
+					Window::CleanUp(); // Clean up the window on failure
 					return EXIT_FAILURE;
 				}
 
 				// Initialize the gui
-				DearImGUI::init();
+				DearImGUI::Init();
 
 				// Initialize the resources
-				Resources::init();
+				Resources::Init();
 
 				// Set entry scene
-				Scene::load(std::make_unique<FieldSetupScene>());
+				Scene::Load(std::make_unique<FieldSetupScene>());
 
 				// Run
-				int code = Engine::run();
+				int code = Engine::Run();
 
 				// Clean up
-				Scene::cleanUp();
-				Resources::cleanUp();
-				DearImGUI::cleanUp();
-				Window::cleanUp();
+				Scene::CleanUp();
+				Resources::CleanUp();
+				DearImGUI::CleanUp();
+				Window::CleanUp();
 
 
 				// Exit

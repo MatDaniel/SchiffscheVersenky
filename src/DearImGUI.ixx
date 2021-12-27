@@ -4,16 +4,21 @@ module;
 #include <imgui_impl_glfw.h>
 #include <imgui_impl_opengl3.h>
 
+#include <memory>
+
+#include "BattleShip.h"
+
 export module Draw.DearImGUI;
 import Draw.Window;
 
 // Properties
-ImGuiContext* m_context;
+export SpdLogger DearImGUILog;
+static ImGuiContext* m_context;
 
 export namespace DearImGUI
 {
 
-	void init()
+	void Init()
 	{
 		
 		// Setup
@@ -25,39 +30,36 @@ export namespace DearImGUI
 		ImGui::StyleColorsDark();
 
 		// Platform/Renderer Backend.
-		ImGui_ImplGlfw_InitForOpenGL(Window::Properties::handle(), true);
+		ImGui_ImplGlfw_InitForOpenGL(Window::Properties::Handle, true);
 		ImGui_ImplOpenGL3_Init("#version 460");
+
+		SPDLOG_LOGGER_INFO(DearImGUILog, "Initialized DearImGUI");
 
 	}
 
-	void cleanUp()
+	void CleanUp()
 	{
 		ImGui::DestroyContext(m_context);
 	}
 
-	namespace Frame
+	void BeginFrame()
 	{
+		ImGui_ImplOpenGL3_NewFrame();
+		ImGui_ImplGlfw_NewFrame();
+		ImGui::NewFrame();
+	}
 
-		void begin()
-		{
-			ImGui_ImplOpenGL3_NewFrame();
-			ImGui_ImplGlfw_NewFrame();
-			ImGui::NewFrame();
-		}
+	void DrawFrame()
+	{
+		ImGui::Begin("Performance Monitor", NULL, ImGuiWindowFlags_NoSavedSettings);
+		ImGui::Text("%.3f ms/frame (%.1f FPS)", 1000.0f / ImGui::GetIO().Framerate, ImGui::GetIO().Framerate);
+		ImGui::End();
+	}
 
-		void draw()
-		{
-			ImGui::Begin("Performance Monitor", NULL, ImGuiWindowFlags_NoSavedSettings);
-			ImGui::Text("%.3f ms/frame (%.1f FPS)", 1000.0f / ImGui::GetIO().Framerate, ImGui::GetIO().Framerate);
-			ImGui::End();
-		}
-
-		void end()
-		{
-			ImGui::Render();
-			ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
-		}
-
+	void EndFrame()
+	{
+		ImGui::Render();
+		ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
 	}
 
 }

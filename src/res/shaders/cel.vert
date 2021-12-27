@@ -30,7 +30,7 @@ void main()
 {
     TexCoords = aTexCoord;
     ColTilt = aColTilt;
-    Normal = mat3(aModlMtx) * aNormal;
+    Normal = aNormal;
     WorldPos = vec3(aModlMtx * vec4(aPos, 1.0));
     
     gl_Position = scene.projMtx * scene.viewMtx * vec4(WorldPos, 1.0);

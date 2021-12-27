@@ -112,6 +112,7 @@
     <ClCompile Include="Resources.ixx" />
     <ClCompile Include="Scene.ixx" />
     <ClCompile Include="RendererInput.ixx" />
+    <ClCompile Include="ShipInfo.ixx" />
     <ClCompile Include="Timings.ixx" />
     <ClCompile Include="Window.ixx" />
   </ItemGroup>
@@ -128,6 +129,11 @@
     </None>
     <None Include="res\shaders\cel.frag" />
     <None Include="res\shaders\cel.vert" />
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="res\models\ship_destroyer.obj">
+      <FileType>Document</FileType>
+    </None>
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">

@@ -6,10 +6,14 @@ module;
 #include <spdlog/spdlog.h>
 #include <spdlog/sinks/stdout_color_sinks.h>
 
+#include <memory>
+
+#include "BattleShip.h"
+
 export module Draw.Window;
 import Draw.Scene;
 
-static std::shared_ptr<spdlog::logger> s_logger;
+export SpdLogger WindowLog;
 static GLFWwindow* s_handle { nullptr };
 static glm::uvec2 s_windowSize { 960, 540 };
 static glm::vec2 s_cursorPos { 960, 540 };
@@ -21,9 +25,9 @@ static glm::vec2 s_cursorPos { 960, 540 };
  * @param error The error code.
  * @param desc The error description.
  */
-static void glfwErrorCallback(int error, const char* desc)
+static void ErrorCallbackGLFW(int error, const char* desc)
 {
-	s_logger->error("Error {}: {}", error, desc);
+	SPDLOG_LOGGER_ERROR(WindowLog, "Error-Code {}: {}", error, desc);
 }
 
 #endif
@@ -45,9 +49,9 @@ static void framebufferSizeCallback(GLFWwindow* window, int width, int height)
     glViewport(0, 0, width, height);
 
     // Process callback
-    auto* scene = Scene::current();
+    auto* scene = Scene::Current();
     if (scene)
-        scene->onWindowResize();
+        scene->OnWindowResize();
 
 }
 
@@ -65,9 +69,9 @@ static void cursorPosCallback(GLFWwindow* window, double xpos, double ypos)
     s_cursorPos = glm::vec2(xpos, ypos);
 
     // Process callback
-	auto* scene = Scene::current();
+	auto* scene = Scene::Current();
     if (scene)
-        scene->onCursorMoved();
+        scene->OnCursorMoved();
 
 }
 
@@ -77,32 +81,18 @@ export namespace Window
 	namespace Properties
 	{
 
-		GLFWwindow* handle() noexcept
-		{
-			return s_handle;
-		}
-
-		const glm::uvec2& windowSize() noexcept
-		{
-			return s_windowSize;
-		}
-
-		const glm::vec2& cursorPos() noexcept
-		{
-			return s_cursorPos;
-		}
+		auto& Handle = s_handle;
+		const auto& WindowSize = s_windowSize;
+		const auto& CursorPos = s_cursorPos;
 
 	}
 
-	bool init()
+	bool Init()
 	{
-
-		// Create logger
-		s_logger = spdlog::stderr_color_mt("ShipWindow", spdlog::color_mode::automatic);
 
 		// Configure error callback
 #ifndef NDEBUG
-		glfwSetErrorCallback(glfwErrorCallback);
+		glfwSetErrorCallback(ErrorCallbackGLFW);
 #endif
 
 		// Initializes and configures GLFW for OpenGL 4.6 with the core profile.
@@ -120,7 +110,7 @@ export namespace Window
 		s_handle = glfwCreateWindow(s_windowSize.x, s_windowSize.y, "SchiffscheVersenky", NULL, NULL);
 		if (s_handle == nullptr)
 		{
-			s_logger->critical("Window creation failed!");
+			SPDLOG_LOGGER_CRITICAL(WindowLog, "Failed to initialize window!");
 			glfwTerminate();
 			return false;
 		}
@@ -133,17 +123,19 @@ export namespace Window
 		glfwSetCursorPosCallback(s_handle, cursorPosCallback);
 		glfwSetFramebufferSizeCallback(s_handle, framebufferSizeCallback);
 
+		SPDLOG_LOGGER_INFO(WindowLog, "Initialized window");
+
 		// Exit with success
 		return true;
 
 	}
 
-	void close()
+	void Close()
 	{
 		glfwSetWindowShouldClose(s_handle, 1);
 	}
 
-	void cleanUp()
+	void CleanUp()
 	{
 		if (s_handle)
 		{
@@ -152,25 +144,20 @@ export namespace Window
 		}
 	}
 
-	bool closed()
+	bool IsClosed()
 	{
 		return glfwWindowShouldClose(s_handle);
 	}
 
-	namespace Frame
+	void BeginFrame()
 	{
-	
-		void begin()
-		{
-			// Polls the IO events. (keyboard input, mouse, etc.)
-			glfwPollEvents();
-		}
+		// Polls the IO events. (keyboard input, mouse, etc.)
+		glfwPollEvents();
+	}
 
-		void end()
-		{
-			glfwSwapBuffers(s_handle);
-		}
-	
+	void EndFrame()
+	{
+		glfwSwapBuffers(s_handle);
 	}
 
 }

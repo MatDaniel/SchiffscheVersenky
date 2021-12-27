@@ -158,7 +158,7 @@ public:
 		constexpr float NEAR_PLANE = 0.1F;
 		constexpr float FAR_PLANE = 1000.0F;
 
-		const glm::vec2 size = Window::Properties::windowSize();
+		const glm::vec2 size = Window::Properties::WindowSize;
 		const size_t type = m_info.projection.index();
 
 		// Exit if window is minimized

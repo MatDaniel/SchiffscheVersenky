@@ -93,6 +93,9 @@
     <ClCompile Include="GameManagment.ixx">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="ShipInfo.ixx">
+      <Filter>Source Files\Utility</Filter>
+    </ClCompile>
     <ClCompile Include="LimaBase.ixx">
       <Filter>Source Files</Filter>
     </ClCompile>
@@ -128,6 +131,9 @@
     </None>
     <None Include="res\shaders\cel.vert">
       <Filter>Resource Files\Shaders</Filter>
+    </None>
+    <None Include="res\models\ship_destroyer.obj">
+      <Filter>Resource Files\Models</Filter>
     </None>
   </ItemGroup>
 </Project>
