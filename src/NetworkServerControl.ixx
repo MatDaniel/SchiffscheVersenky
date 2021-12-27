@@ -21,7 +21,7 @@ export namespace Network::Server {
 
 	// A per client instance of an Io bridge
 	class NwClientControl {
-		friend class NetworkManager;
+		friend class NetworkManager2;
 	public:
 		~NwClientControl() {
 			TRACE_FUNTION_PROTO;
@@ -36,7 +36,7 @@ export namespace Network::Server {
 			return this == Rhs;
 		}
 
-		int32_t SendShipControlPackageDynamic(
+		int32_t SendShipControlPackageDynamic(    // Sends a package to the 
 			const ShipSockControl& RequestPackage
 		) {
 			TRACE_FUNTION_PROTO;
@@ -120,49 +120,23 @@ export namespace Network::Server {
 		}
 	};
 
-	export class NetworkManager
-		: private WsaNetworkBase {
+	class NetworkManager2
+		: public MagicInstanceManagerBase<NetworkManager2>,
+		  private WsaNetworkBase {
+		friend class MagicInstanceManagerBase<NetworkManager2>;
 	public:
 		typedef void (*MajorFunction)(       // this has to handle the networking requests being both capable of reading and sending requests
-			NetworkManager&  NetworkDevice,  // a pointer to the NetWorkIoController responsible of said request packet
+			NetworkManager2& NetworkDevice,  // a pointer to the NetWorkIoController responsible of said request packet
 			NwRequestPacket& NetworkRequest, // a pointer to a network request packet describing the current request
 			void*            UserContext     // A pointer to caller defined data thats forwarded to the callback in every call, could be the GameManager class or whatever
 			);
 
-		static NetworkManager* CreateSingletonOverride(
-			const char* ServerPort
-		) {
+		~NetworkManager2() {
 			TRACE_FUNTION_PROTO;
 
-			// Magic fuckery cause make_unique cannot normally access a private constructor
-			struct EnableMakeUnique : public NetworkManager {
-				inline EnableMakeUnique(
-					const char* ServerPort
-				) : NetworkManager(
-					ServerPort) {}
-			};
-
-			InstanceObject = make_unique<EnableMakeUnique>(ServerPort);
-			SPDLOG_LOGGER_INFO(NetworkLog, "Factory created NetworkIoCtl object at {}",
-				(void*)InstanceObject.get());
-			return InstanceObject.get();
+			SPDLOG_LOGGER_INFO(NetworkLog, "Network manager destroyed, cleaning up sockets");
 		}
-		static NetworkManager* GetInstance() {
-			TRACE_FUNTION_PROTO;
-
-			return InstanceObject.get();
-		}
-
-		~NetworkManager() {
-			TRACE_FUNTION_PROTO;
-
-			// SPDLOG_LOGGER_INFO(NetworkLog, "Network manager destroyed, cleaning up sockets");
-		}
-		NetworkManager(
-			const NetworkManager&) = delete;
-		NetworkManager& operator=(
-			const NetworkManager&) = delete;
-
+	
 
 
 		long PollNetworkConnectionsAndDispatchCallbacks( // Starts internally handling accept requests passively,
@@ -344,14 +318,13 @@ export namespace Network::Server {
 
 
 	private:
-		NetworkManager(
+		NetworkManager2(
 			const char* PortNumber
 		) {
 			TRACE_FUNTION_PROTO;
 
 			addrinfo* ServerInformation;
-			auto Result = getaddrinfo(
-				NULL,
+			auto Result = getaddrinfo(NULL,
 				PortNumber,
 				&(const addrinfo&)addrinfo{
 					.ai_flags = AI_PASSIVE,
@@ -362,7 +335,8 @@ export namespace Network::Server {
 				&ServerInformation);
 			if (Result)
 				throw (SPDLOG_LOGGER_ERROR(NetworkLog, "Failed to retreive port information for {} with {}",
-					PortNumber, Result), -1);
+					PortNumber, Result),
+					runtime_error("Failed to retrieve port information"));
 			SPDLOG_LOGGER_INFO(NetworkLog, "Retrieved port information for {}", PortNumber);
 
 			auto ServerInformationIterator = ServerInformation;
@@ -375,8 +349,9 @@ export namespace Network::Server {
 				(ServerInformationIterator = ServerInformationIterator->ai_next));
 			if (LocalServerSocket == INVALID_SOCKET)
 				throw (freeaddrinfo(ServerInformation),
-					SPDLOG_LOGGER_ERROR(NetworkLog, "failed to create socket for client with {}",
-						WSAGetLastError()), -2);
+					SPDLOG_LOGGER_ERROR(NetworkLog, "Failed to create io handler socket for connect with {}",
+						WSAGetLastError()),
+					runtime_error("Failed to create io handler socket for connect"));
 			SPDLOG_LOGGER_INFO(NetworkLog, "Created socket [{:04x}] for network manager", LocalServerSocket);
 
 			Result = ::bind(
@@ -386,9 +361,11 @@ export namespace Network::Server {
 			freeaddrinfo(ServerInformation);
 			ServerInformation = nullptr;
 			if (Result == SOCKET_ERROR)
-				throw (closesocket(LocalServerSocket),
-					SPDLOG_LOGGER_ERROR(NetworkLog, "failed to bind port {} on socket [{:04x}] with {}",
-						PortNumber, LocalServerSocket, WSAGetLastError()), -3);
+				throw (freeaddrinfo(ServerInformation),
+					closesocket(LocalServerSocket),
+					SPDLOG_LOGGER_ERROR(NetworkLog, "Failed to bind port {} on socket [{:04x}] with {}",
+						PortNumber, LocalServerSocket, WSAGetLastError()),
+					runtime_error("Failed to bind io socket"));
 			SPDLOG_LOGGER_INFO(NetworkLog, "Bound port {} to socket [{:04x}]",
 				PortNumber, LocalServerSocket);
 
@@ -396,9 +373,11 @@ export namespace Network::Server {
 				LocalServerSocket,
 				SOMAXCONN);
 			if (Result == SOCKET_ERROR)
-				throw (closesocket(LocalServerSocket),
+				throw (freeaddrinfo(ServerInformation),
+					closesocket(LocalServerSocket),
 					SPDLOG_LOGGER_ERROR(NetworkLog, "Failed to switch socket [{:04x}] to listening mode with {}",
-						LocalServerSocket, WSAGetLastError()), -4);
+						LocalServerSocket, WSAGetLastError()),
+					runtime_error("Failed to switch io socket to listening mode"));
 
 			SocketDescriptorTable.emplace_back(WSAPOLLFD{
 				.fd = LocalServerSocket,
@@ -430,7 +409,5 @@ export namespace Network::Server {
 		SOCKET                   LocalServerSocket = INVALID_SOCKET;
 		vector<NwClientControl> ConnectedClients;
 		vector<WSAPOLLFD>        SocketDescriptorTable;
-
-		static inline unique_ptr<NetworkManager> InstanceObject;
 	};
 }

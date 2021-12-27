@@ -26,55 +26,23 @@ export namespace Network::Client {
 		ShipSockControl* IoControlPacketData;
 	};
 
-	class NetworkManager
-		: private WsaNetworkBase {
+
+	class NetworkManager2
+		: public MagicInstanceManagerBase<NetworkManager2>,
+		  private WsaNetworkBase {
+		friend class MagicInstanceManagerBase<NetworkManager2>;
 	public:
-		
 		typedef void(*MajorFunction)(        // this has to handle the networking requests being both capable of reading and sending requests
-			NetworkManager&  NetworkDevice,  // a pointer to the NetWorkIoController responsible of said request packet
+			NetworkManager2& NetworkDevice,  // a pointer to the NetWorkIoController responsible of said request packet
 			NwRequestPacket& NetworkRequest, // a pointer to a network request packet describing the current request
 			void*            UserContext     // A pointer to caller defined data thats forwarded to the callback in every call, could be the GameManager class or whatever
 			);
 
-
-
-		static NetworkManager* CreateSingletonOverride(
-			const char* ServerName,
-			const char* ServerPort
-		) {
-			TRACE_FUNTION_PROTO;
-
-			// Magic fuckery cause make_unique cannot normally access a private constructor
-			struct EnableMakeUnique : public NetworkManager {
-				inline EnableMakeUnique(
-					const char* ServerName,
-					const char* ServerPort
-				) : NetworkManager(
-					ServerName,
-					ServerPort) {}
-			};
-			
-			InstanceObject = make_unique<EnableMakeUnique>(
-				ServerName,
-				ServerPort);
-			SPDLOG_LOGGER_INFO(NetworkLog, "Factory created NetworkIoCtl object at {}",
-				(void*)InstanceObject.get());
-			return InstanceObject.get();
-		}
-		static NetworkManager* GetInstance() {
-			TRACE_FUNTION_PROTO;
-
-			return InstanceObject.get();
-		}
-
-		~NetworkManager() {
+		~NetworkManager2() {
 			TRACE_FUNTION_PROTO;
 
 			// SPDLOG_LOGGER_INFO(NetworkLog, "Client network manager destroyed, cleaning up sockets");
 		}
-		NetworkManager(const NetworkManager&) = delete;
-		NetworkManager& operator=(const NetworkManager&) = delete;
-
 
 
 		NwRequestBase::NwRequestStatus
@@ -199,18 +167,17 @@ export namespace Network::Client {
 		}
 
 		SOCKET GetSocket() const {
-			return GameServer;
+			TRACE_FUNTION_PROTO; return GameServer;
 		}
 
 	private:
-		NetworkManager(
+		NetworkManager2(
 			const char* ServerName, // aka ipv4/6 address
 			const char* PortNumber  // the Port Number the server runs on
 		) {
 			TRACE_FUNTION_PROTO;
 
-			auto Result = getaddrinfo(
-				ServerName,
+			auto Result = getaddrinfo(ServerName,
 				PortNumber,
 				&(const addrinfo&)addrinfo{
 					.ai_family = AF_INET,
@@ -275,7 +242,5 @@ export namespace Network::Client {
 		SOCKET    GameServer = INVALID_SOCKET;
 		bool      SocketAttached = false;
 		addrinfo* ServerInformation = nullptr;
-
-		static inline unique_ptr<NetworkManager> InstanceObject;
 	};
 }

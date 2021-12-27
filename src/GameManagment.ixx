@@ -43,13 +43,11 @@ export namespace GameManagment {
 
 
 		GmPlayerField(
-			      SOCKET         AssociatedSocket,
 			      PointComponent FieldSizes,
 			const ShipCount&     NumberOfShips
 		)
 			: FieldDimensions(FieldSizes),
-			  NumberOfShipsPerType(NumberOfShips),
-			  PlayerAssociation(AssociatedSocket) {
+			  NumberOfShipsPerType(NumberOfShips) {
 			TRACE_FUNTION_PROTO;
 
 			auto NumberOfCells = FieldDimensions.XComponent * FieldDimensions.YComponent;
@@ -259,13 +257,15 @@ export namespace GameManagment {
 
 
 		const ShipCount& GetInternalShipNumbersReference() const {
-			return NumberOfShipsPerType;
+			TRACE_FUNTION_PROTO; return NumberOfShipsPerType;
 		}
 		uint8_t GetNumberOfShipsPlaced() const {
-			return FieldShipStates.size();
+			TRACE_FUNTION_PROTO; return FieldShipStates.size();
 		}
 
-
+		bool operator==(const GmPlayerField& Other) const {
+			TRACE_FUNTION_PROTO; return this == &Other;
+		}
 
 	private:
 		PointComponent CalculateCordinatesOfPartByDistanceWithShip(
@@ -303,22 +303,15 @@ export namespace GameManagment {
 			return FieldCellStates[Cordinates.YComponent * FieldDimensions.XComponent + Cordinates.XComponent];
 		}
 
-		SOCKET                  PlayerAssociation;
 		unique_ptr<CellState[]> FieldCellStates;
 		PointComponent          FieldDimensions;
-
-		vector<ShipState> FieldShipStates;
-		ShipCount         NumberOfShipsPerType;
+		vector<ShipState>       FieldShipStates;
+		ShipCount               NumberOfShipsPerType;
 	};
 
 
 
 	// Helper structures
-	struct PlayerMetaData {
-		
-		bool ReadyUped;
-
-	};
 	enum GamePhase {
 		INVALID_PHASE = -1,
 		SETUP_PHASE,
@@ -329,7 +322,7 @@ export namespace GameManagment {
 
 
 	// The primary interface, this gives full control of the game and forwards other functionality
-	class GameManager2 
+	class GameManager2 final
 		: public MagicInstanceManagerBase<GameManager2>,
 		  private WsaNetworkBase {
 		friend class MagicInstanceManagerBase<GameManager2>;
@@ -351,7 +344,6 @@ export namespace GameManagment {
 			SPDLOG_LOGGER_INFO(GameLog, "game manager destroyed, cleaning up assocs");
 		}
 
-
 		GmPlayerField* TryAllocatePlayerWithId( // Tries to allocate a player, and returns it,
 		                                        // if there are too many players returns nullptr,
 		                                        // throws runtime error if emplace fails (should be impossible)
@@ -359,10 +351,12 @@ export namespace GameManagment {
 		) {
 			TRACE_FUNTION_PROTO;
 
-			if (CurrentPlayersRegistered >= 2)
+			// Check if we have enough slots to allocate players in
+			if (PlayerFieldData.size() >= 2)
 				return SPDLOG_LOGGER_WARN(GameLog, "Cannot allocate more Players, there are already 2 present"), nullptr;
 
-			auto [FieldIterator, Inserted] = PlayerFieldData.try_emplace(SocketAsId,
+			// Allocate and insert player into player field database
+			auto [FieldIterator, Inserted] = PlayerFieldData.try_emplace(
 				SocketAsId,
 				InternalFieldDimensions,
 				InternalShipCount);
@@ -370,33 +364,12 @@ export namespace GameManagment {
 				throw (SPDLOG_LOGGER_ERROR(GameLog, "failed to insert player field into controller"),
 					runtime_error("failed to insert player field into controller"));
 
+			// Check if the allocated player is our own (this is for client side) and return 
+			if (PlayerFieldData.size() == 1)
+				MyPlayerId = SocketAsId;
 			SPDLOG_LOGGER_INFO(GameLog, "Allocated player for socket [{:04x}]",
 				SocketAsId);
 			return &FieldIterator->second;
-		}
-
-		uint8_t GetCurrentPlayerCount() {
-			TRACE_FUNTION_PROTO;
-
-			return PlayerFieldData.size();
-		}
-
-		pair<GmPlayerField&, GmPlayerField&> // returns a pair of both players fields,
-		GetFieldControllerPairById(          // return->first contains the player field of the searched id and
-		                                     // return->second the oponents players	                                     
-			SOCKET SocketAsPlayerId
-		) {
-			TRACE_FUNTION_PROTO;
-		
-			return { PlayerFieldData.begin()->second,
-				PlayerFieldData.end()->second };
-		}
-
-
-		GamePhase GetCurrentGamePhase() {
-			TRACE_FUNTION_PROTO;
-
-			return CurrentGameState;
 		}
 
 		GameManagerStatus CheckReadyAndStartGame() { // Checks if everything is valid and the game has been properly setup
@@ -419,6 +392,83 @@ export namespace GameManagment {
 			SPDLOG_LOGGER_INFO(GameLog, "Game is setup, switched to game phase state");
 			return STATUS_SWITCHED_GAME_PHASE;
 		}
+
+
+		enum GetPlayerFieldForOperationByType {
+			PLAYER_INVALID = 0, // An invalid control type, may be adapted
+			GET_PLAYER_BY_ID,   // Retrieves player field by specified Id
+			DOES_ID_OWN_PLAYER, // Same as GET_PLAYER_BY_ID, just expressive for usecase
+			PLAYER_BY_TURN,     // Gets the player's field who has his current turn
+			GET_MY_PLAYER,      // Retrieves the clients own players field
+
+			GET_OPPONENT_PLAYER // Searches for the opponent of the specified players id
+			                    // If the specified id is INVALID_SOCKET gives the opponent
+			                    // of the clients player field
+		};
+		GmPlayerField* GetPlayerFieldByOperation(
+			GetPlayerFieldForOperationByType ControlType,
+			SOCKET                           SocketAsId
+		) {
+			TRACE_FUNTION_PROTO;
+
+			switch (ControlType) {
+			case PLAYER_INVALID:
+				SPDLOG_LOGGER_WARN(GameLog, "Check command PLAYER_INVALID");
+				break;
+
+			case DOES_ID_OWN_PLAYER:
+			case GET_PLAYER_BY_ID:
+				for (auto& [SocketHandle, PlayerField] : PlayerFieldData)
+					if (SocketHandle == SocketAsId)
+						return &PlayerField;
+				return nullptr;
+
+			case PLAYER_BY_TURN:
+				return GetPlayerFieldByOperation(GET_PLAYER_BY_ID,
+					CurrentSelectedPlayer);
+								
+			case GET_MY_PLAYER:
+				return GetPlayerFieldByOperation(GET_PLAYER_BY_ID,
+					MyPlayerId);
+				
+			case GET_OPPONENT_PLAYER:
+				if (SocketAsId == INVALID_SOCKET)
+					SocketAsId = MyPlayerId;
+				if (!GetPlayerFieldByOperation(DOES_ID_OWN_PLAYER,
+					SocketAsId))
+					return nullptr;
+				return PlayerFieldData.begin()->first == SocketAsId ?
+					&PlayerFieldData.begin()->second : &PlayerFieldData.end()->second;
+
+			default:
+				SPDLOG_LOGGER_ERROR(GameLog, "unsupplied handling encountered");
+			}
+
+			return nullptr;
+		}
+		SOCKET GetSocketAsIdForPlayerField(
+			const GmPlayerField& PlayerField
+		) const {
+			TRACE_FUNTION_PROTO;
+			
+			for (const auto& [SocketAsId, InternalField] : PlayerFieldData)
+				if (InternalField == PlayerField)
+					return SocketAsId;
+			return INVALID_SOCKET;
+		}
+
+
+
+		uint8_t GetCurrentPlayerCount() {
+			TRACE_FUNTION_PROTO;
+
+			return PlayerFieldData.size();
+		}
+		GamePhase GetCurrentGamePhase() {
+			TRACE_FUNTION_PROTO;
+
+			return CurrentGameState;
+		}
 		
 		// Game parameters, used for allocating players
 		const PointComponent InternalFieldDimensions;
@@ -440,9 +490,11 @@ export namespace GameManagment {
 
 		map<SOCKET, GmPlayerField> PlayerFieldData;
 
+		SOCKET    MyPlayerId = INVALID_SOCKET;
+		SOCKET    CurrentSelectedPlayer = INVALID_SOCKET;
+
 		uint8_t   NumberOfReadyPlayers = 0;
-		uint8_t   CurrentPlayersRegistered = 0;
-		uint8_t   CurrentPlayersTurnIndex = 0;
+
 		GamePhase CurrentGameState = SETUP_PHASE;
 	};
 }

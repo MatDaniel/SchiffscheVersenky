@@ -220,6 +220,8 @@ export namespace Network {
 			// STARTUP_FIELDSIZE
 			PointComponent GameFieldSizes;
 
+			// STARTUP_SHIPCOUNTS
+			ShipCount GameShipNumbers;
 
 			// CELL_STATE_SERVER
 			struct {
