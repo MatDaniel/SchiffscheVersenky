@@ -64,7 +64,7 @@ export namespace GameManagment {
 			TRACE_FUNTION_PROTO;
 
 			SPDLOG_LOGGER_INFO(GameLog, "Playerfield [{}:{}] destroyed, cleaning up state",
-				(void*)this, (void*)FieldCellStates);
+				(void*)this, (void*)FieldCellStates.get());
 		}
 
 
@@ -195,7 +195,7 @@ export namespace GameManagment {
 		}
 
 
-		optional<ShipState&> GetShipEntryForCordinate( // Searches the shipstate list for an entry that contains a ship colliding with said coords
+		ShipState* GetShipEntryForCordinate( // Searches the shipstate list for an entry that contains a ship colliding with said coords
 			PointComponent Cordinates
 		) {
 			TRACE_FUNTION_PROTO;
@@ -213,13 +213,13 @@ export namespace GameManagment {
 						IteratorPosition.YComponent == Cordinates.YComponent)
 						return SPDLOG_LOGGER_INFO(GameLog, "Found ship at {{{}:{}}}",
 							IteratorPosition.XComponent, IteratorPosition.YComponent), 
-							ShipEntry;
+							&ShipEntry;
 				}
 			}
 
 			SPDLOG_LOGGER_WARN(GameLog, "Failed to find an associated ship for location {{{}:{}}}",
 				Cordinates.XComponent, Cordinates.YComponent);
-			return {};
+			return nullptr;
 		}
 
 		CellState StrikeCellAndUpdateShipList( // Tries to "shoot" cell and applies handling,
@@ -247,13 +247,25 @@ export namespace GameManagment {
 					*ShipEntry, i);
 				if (GetCellReferenceByCoordinates(IteratorPosition) != CELL_WAS_SHOT_IN_USE)
 					return SPDLOG_LOGGER_INFO(GameLog, "Ship at {{{}:{}}} was succesfully hit",
-						ShipEntry->Cordinates.XComponent, ShipEntry->Cordinates.YComponent), LocalCell;
+						ShipEntry->Cordinates.XComponent, ShipEntry->Cordinates.YComponent),
+					LocalCell;
 			}
 
 			SPDLOG_LOGGER_INFO(GameLog, "Ship at {{{}:{}}} was sunken",
-				ShipEntry.Cordinates.XComponent, ShipEntry.Cordinates.YComponent);
+				ShipEntry->Cordinates.XComponent, ShipEntry->Cordinates.YComponent);
 			return STATUS_WAS_DESTRUCTOR;
 		}
+
+
+
+		const ShipCount& GetInternalShipNumbersReference() const {
+			return NumberOfShipsPerType;
+		}
+		uint8_t GetNumberOfShipsPlaced() const {
+			return FieldShipStates.size();
+		}
+
+
 
 	private:
 		PointComponent CalculateCordinatesOfPartByDistanceWithShip(
@@ -318,10 +330,21 @@ export namespace GameManagment {
 
 	// The primary interface, this gives full control of the game and forwards other functionality
 	class GameManager2 
-		: public PSingletonFactory<GameManager2>,
+		: public MagicInstanceManagerBase<GameManager2>,
 		  private WsaNetworkBase {
-		friend class PSingletonFactory<GameManager2>;
+		friend class MagicInstanceManagerBase<GameManager2>;
 	public:
+		enum GameManagerStatus {
+			STATUS_INVALID = -2000,
+			STATUS_PLAYERS_NOT_READY,
+			STATUS_NOT_ALL_PLACED,
+
+			STATUS_OK = 0,
+			STATUS_SWITCHED_GAME_PHASE,
+
+		};
+
+
 		~GameManager2() {
 			TRACE_FUNTION_PROTO;
 
@@ -329,24 +352,27 @@ export namespace GameManagment {
 		}
 
 
-		optional<GmPlayerField&> AllocatePlayerWithId(
+		GmPlayerField* TryAllocatePlayerWithId( // Tries to allocate a player, and returns it,
+		                                        // if there are too many players returns nullptr,
+		                                        // throws runtime error if emplace fails (should be impossible)
 			SOCKET SocketAsId
 		) {
 			TRACE_FUNTION_PROTO;
 
 			if (CurrentPlayersRegistered >= 2)
-				return SPDLOG_LOGGER_WARN(GameLog, "Cannot allocate more Players, there are already 2 present"), {};
+				return SPDLOG_LOGGER_WARN(GameLog, "Cannot allocate more Players, there are already 2 present"), nullptr;
 
 			auto [FieldIterator, Inserted] = PlayerFieldData.try_emplace(SocketAsId,
 				SocketAsId,
 				InternalFieldDimensions,
 				InternalShipCount);
 			if (!Inserted)
-				return SPDLOG_LOGGER_ERROR(GameLog, "failed to insert player field into controller"), {};
+				throw (SPDLOG_LOGGER_ERROR(GameLog, "failed to insert player field into controller"),
+					runtime_error("failed to insert player field into controller"));
 
 			SPDLOG_LOGGER_INFO(GameLog, "Allocated player for socket [{:04x}]",
 				SocketAsId);
-			return PlayerFieldData[SocketAsId];
+			return &FieldIterator->second;
 		}
 
 		uint8_t GetCurrentPlayerCount() {
@@ -355,35 +381,45 @@ export namespace GameManagment {
 			return PlayerFieldData.size();
 		}
 
-		optional<GmPlayerField&> GetPlayerFieldControllerById(
-			SOCKET          SocketAsPlayerId
-		) {
-			TRACE_FUNTION_PROTO;
-
-			return PlayerFieldData.at(SocketAsPlayerId);
-		}
-
-		optional<pair<GmPlayerField&, GmPlayerField&>> GetPlayerPairById(
-			SOCKET          SocketAsPlayerId,
+		pair<GmPlayerField&, GmPlayerField&> // returns a pair of both players fields,
+		GetFieldControllerPairById(          // return->first contains the player field of the searched id and
+		                                     // return->second the oponents players	                                     
+			SOCKET SocketAsPlayerId
 		) {
 			TRACE_FUNTION_PROTO;
 		
-			array<GmPlayerField*, 2> PlayerData;
-			for (const auto& [SocketAsId, FieldController] : PlayerFieldData)
-				PlayerFieldData[SocketAsId != SocketAsPlayerId ? 0 : 1] = &FieldController;
-		
-			return make_shared(std::ref(*PlayerData[0]), std::ref(*PlayerData[1]));
+			return { PlayerFieldData.begin()->second,
+				PlayerFieldData.end()->second };
 		}
 
-		
+
 		GamePhase GetCurrentGamePhase() {
 			TRACE_FUNTION_PROTO;
 
 			return CurrentGameState;
 		}
 
-		
+		GameManagerStatus CheckReadyAndStartGame() { // Checks if everything is valid and the game has been properly setup
+			TRACE_FUNTION_PROTO;
 
+			// Check if all players are ready to play
+			if (NumberOfReadyPlayers != 2)
+				return SPDLOG_LOGGER_WARN(GameLog, "Not all players are ready'd up"),
+					STATUS_PLAYERS_NOT_READY;
+
+			// Check if players have all their ships placed
+			for (const auto& [Key, PlayerFieldController] : PlayerFieldData)
+				if (PlayerFieldController.GetInternalShipNumbersReference().GetTotalCount() <
+					PlayerFieldController.GetNumberOfShipsPlaced())
+					return SPDLOG_LOGGER_WARN(GameLog, "Not all ships of Player [{:04x}] have been placed",
+						Key), STATUS_NOT_ALL_PLACED;
+
+			// Switch game phase state and notify caller
+			CurrentGameState = GAME_PHASE;
+			SPDLOG_LOGGER_INFO(GameLog, "Game is setup, switched to game phase state");
+			return STATUS_SWITCHED_GAME_PHASE;
+		}
+		
 		// Game parameters, used for allocating players
 		const PointComponent InternalFieldDimensions;
 		const ShipCount      InternalShipCount;
@@ -402,26 +438,11 @@ export namespace GameManagment {
 		}
 
 
-		int32_t GetPlayerIndexById(
-			SOCKET SocketAsPlayerId
-		) {
-			TRACE_FUNTION_PROTO;
-
-			for (auto i = 0; i < _countof(RemotePlayersField); ++i)
-				if (RemotePlayersField[i].PlayerAssociation == SocketAsPlayerId)
-					return i;
-			return -1;
-		}
-
-
-		// Primary game state
 		map<SOCKET, GmPlayerField> PlayerFieldData;
-		array<PlayerMetaData, 2> RemotePlayerState{};
-		
 
-		// Non primary game state
-		uint8_t        CurrentPlayersRegistered = 0;
-		uint8_t        CurrentPlayersTurnIndex = 0;
-		GamePhase      CurrentGameState = SETUP_PHASE;
+		uint8_t   NumberOfReadyPlayers = 0;
+		uint8_t   CurrentPlayersRegistered = 0;
+		uint8_t   CurrentPlayersTurnIndex = 0;
+		GamePhase CurrentGameState = SETUP_PHASE;
 	};
 }

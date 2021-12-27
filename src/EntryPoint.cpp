@@ -50,8 +50,9 @@ namespace Server {
 			SPDLOG_LOGGER_INFO(LayerLog, "Successfully connected client to server");
 
 			// we now need to notify the game manager of the connecting player
-			auto GameManager = GameManager::GetInstance();
-			auto NewPlayer = GameManager->AllocattePlayerWithId(NewClient->GetSocket());
+			auto& GameManager = GameManager2::GetInstance();
+			auto NewPlayer = GameManager.TryAllocatePlayerWithId(
+				NewClient->GetSocket());
 			if (!NewPlayer) {
 
 				// we would need to inform the connecting client of all the current states etc 
@@ -68,7 +69,7 @@ namespace Server {
 			// Send game dimensions information
 			auto Result = NewClient->SendShipControlPackageDynamic(ShipSockControl{
 					.ControlCode = ShipSockControl::STARTUP_FIELDSIZE,
-					.GameFieldSizes = GameManager->GetFieldDimensions()
+					.GameFieldSizes = GameManager.InternalFieldDimensions
 				});
 			if (Result < 0)
 				return NetworkRequest.CompleteIoRequest(NwRequestPacket::STATUS_REQUEST_ERROR),
@@ -101,21 +102,20 @@ namespace Server {
 				break;
 
 			default:
-				auto IoPacket = (ShipSockControl*)PacketBuffer.get();
-				switch (IoPacket->ControlCode) {
+				auto ShipSockControlPack = (ShipSockControl*)PacketBuffer.get();
+				switch (ShipSockControlPack->ControlCode) {
 				case ShipSockControl::NO_COMMAND_CLIENT:
 					SPDLOG_LOGGER_WARN(LayerLog, "Debug NO_COMMAND received");
 					break;
 
-				case ShipSockControl::SHOOT_CELL_CLIENT:
-				{
-					auto GameManager = GameManager::GetInstance();
+				case ShipSockControl::SHOOT_CELL_CLIENT: {
+					auto GameManager = GameManager2::GetInstance();
 					auto RequestingClientId = NetworkRequest.RequestingSocket;
 
 					// Get players by id (socket handle)
-					GmPlayerField* RemotePlayer;
-					auto RequestingPlayer = GameManager->GetPlayerFieldControllerById(RequestingClientId,
-						&RemotePlayer);
+					auto RemotePlayers = GameManager.GetFieldControllerPairById(
+						RequestingClientId);
+
 					if (!RequestingPlayer)
 						return NetworkRequest.CompleteIoRequest(NwRequestPacket::STATUS_REQUEST_IGNORED),
 						SPDLOG_LOGGER_WARN(LayerLog, "Shoot request not by player");
@@ -143,10 +143,10 @@ namespace Server {
 
 					// Update internal server state
 					auto NewCellState = RemotePlayer->StrikeCellAndUpdateShipList(
-						IoPacket->ShootCellLocation);
+						ShipSockControlPack->ShootCellLocation);
 					SPDLOG_LOGGER_INFO(LayerLog, "New Cellstate for {{{}:{}}} is {}",
-						IoPacket->ShootCellLocation.XComponent,
-						IoPacket->ShootCellLocation.YComponent,
+						ShipSockControlPack->ShootCellLocation.XComponent,
+						ShipSockControlPack->ShootCellLocation.YComponent,
 						NewCellState);
 
 					// Send update notification to all connected clients
@@ -154,7 +154,7 @@ namespace Server {
 						.SizeOfThisStruct = sizeof(UpdateNotification),
 						.ControlCode = ShipSockControl::CELL_STATE_SERVER,
 						.CellStateUpdate = {
-							.Coordinates = IoPacket->ShootCellLocation,
+							.Coordinates = ShipSockControlPack->ShootCellLocation,
 							.State = NewCellState
 						}
 					};
@@ -171,7 +171,7 @@ namespace Server {
 				case ShipSockControl::SET_SHIP_LOC_CLIENT:
 				{
 					// Meta setup handle data
-					auto GameManager = GameManager::GetInstance();
+					auto& GameManager = GameManager2::GetInstance();
 					auto RequestingClientId = NetworkRequest.RequestingSocket;
 
 					// Check if type of request is currently accepted in gamestate
@@ -190,9 +190,9 @@ namespace Server {
 
 					// Place ship into grid
 					auto Result = RequestingPlayer->PlaceShipSecureCheckInterference(
-						IoPacket->SetShipLocation.ShipType,
-						IoPacket->SetShipLocation.Rotation,
-						IoPacket->SetShipLocation.ShipsPosition);
+						ShipSockControlPack->SetShipLocation.ShipType,
+						ShipSockControlPack->SetShipLocation.Rotation,
+						ShipSockControlPack->SetShipLocation.ShipsPosition);
 					if (Result < 0) {
 
 						// the ship presumably collided with another ship or the current slot is unavailable,
@@ -259,7 +259,7 @@ namespace Client {
 				return (void)NetworkRequest.CompleteIoRequest(NwRequestPacket::STATUS_REQUEST_COMPLETED);
 
 			case ShipSockControl::CELL_STATE_SERVER: {
-				auto GameManager = GameManager::GetInstance();
+				auto& GameManager = GameManager2::GetInstance();
 
 
 
@@ -338,7 +338,7 @@ int main(
 
 			// Creating and initializing managers managers
 			auto& ShipSocketObject = *Network::Server::NetworkManager::CreateSingletonOverride(PortNumber);
-			auto& ShipGameObject = *GameManager::CreateSingletonOverride({ 6, 6 },
+			auto& ShipGameObject = GameManager2::CreateSingletonOverride({ 6, 6 },
 				{ 2,2,2,2,2 });
 
 			// Run main server handler loop

@@ -3,6 +3,7 @@
 module;
 
 #include "BattleShip.h"
+#include <atomic>
 
 export module LayerBase;
 using namespace std;
@@ -10,29 +11,37 @@ export SpdLogger NetworkLog;
 
 
 export template<typename T>
-class PSingletonFactory {
+class MagicInstanceManagerBase {
 public:
 	template<typename... Args>
 	static T& CreateObject(Args&&... Parameters) {
+		TRACE_FUNTION_PROTO;
+		
 		struct EnableMakeUnique : public T {
 			inline EnableMakeUnique(Args&&... ParametersForward)
-				: T(forward<Args>(ParametersForward)...) {};
+				: T(forward<Args>(ParametersForward)...) { TRACE_FUNTION_PROTO; };
 		};
 		InstanceObject = make_unique<EnableMakeUnique>(forward<Args>(Parameters)...);
 
 		return *InstanceObject;
 	}
 	static T& GetInstance() {
+		TRACE_FUNTION_PROTO;
+		
 		return *InstanceObject;
 	}
 	static void ManualReset() {
+		TRACE_FUNTION_PROTO;
+
 		InstanceObject.reset();
 	}
 
 	// Singleton(const Singleton&) = delete;
 	// Singleton(const Singleton&&) = delete;
-	PSingletonFactory& operator=(const PSingletonFactory&) = delete;
-	PSingletonFactory& operator=(const PSingletonFactory&&) = delete;
+	MagicInstanceManagerBase& operator=(
+		const MagicInstanceManagerBase&) = delete;
+	MagicInstanceManagerBase& operator=(
+		const MagicInstanceManagerBase&&) = delete;
 
 private:
 	static inline unique_ptr<T> InstanceObject;
