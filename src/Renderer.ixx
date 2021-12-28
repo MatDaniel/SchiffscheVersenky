@@ -69,7 +69,6 @@ export struct OrthoProjection final
 	
 	inline glm::mat4 calc(glm::vec2 windowSize) const
 	{
-
 		float width = (windowSize.x / windowSize.y) * height;
 		float heightHalf = height / 2.0F;
 		float widthHalf = width / 2.0F;

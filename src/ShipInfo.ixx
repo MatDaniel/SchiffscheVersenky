@@ -16,9 +16,8 @@ namespace
 
 	glm::mat4 RotateShip(float deg)
 	{
-		constexpr glm::vec3 forward{ 0.0F, 0.0F, 1.0F };
-		constexpr glm::vec3 up{ 0.0F, 1.0F, 0.0F };
-		return glm::rotate(glm::rotate(glm::mat4(1.0F), glm::radians(deg), up), glm::radians(180.0F), forward);
+		constexpr glm::vec3 up { 0.0F, 1.0F, 0.0F };
+		return glm::rotate(glm::mat4(1.0F), glm::radians(deg), up);
 	}
 
 }

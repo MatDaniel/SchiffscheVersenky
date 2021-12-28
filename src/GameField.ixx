@@ -271,7 +271,7 @@ public:
 
 	void DrawShip(SceneRenderer& renderer, ShipType type, ShipPosition pos)
 	{
-		renderer.draw(CalcTransform(pos.position, 0.5) * m_shipScale * ShipRotations[pos.direction], m_shipModels[type]);
+		renderer.draw(CalcTransform(pos.position) * m_shipScale * ShipRotations[pos.direction], m_shipModels[type]);
 	}
 
 	// Setup phase
