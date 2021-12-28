@@ -202,6 +202,25 @@ public:
 		delete[] m_fieldSquareTransforms;
 	}
 
+	void setTransform(glm::mat4 transform)
+	{
+		m_transform = transform;
+		size_t i = 0;
+		for (uint32_t y = 0; y < m_height; y++)
+			for (uint32_t x = 0; x < m_width; x++, i++)
+				m_fieldSquareTransforms[i] = CalcTransform({ x + 0.5F, y + 0.5F });
+	}
+
+	size_t size() const noexcept
+	{
+		return m_width * m_height;
+	}
+
+	size_t index(uint32_t x, uint32_t y) const noexcept
+	{
+		return m_width * y + x;
+	}
+
 	void DrawBackground(SceneRenderer& renderer)
 	{
 		Material material
@@ -250,14 +269,15 @@ public:
 			}
 	}
 
-	void DrawSquaresByGameInfo(SceneRenderer& renderer)
+	void DrawShip(SceneRenderer& renderer, ShipType type, ShipPosition pos)
 	{
-		DrawSquares(renderer, [](auto x, auto y) -> vec4 {
-			return OceanColor; // TODO: Get colors by game info
-		});
+		renderer.draw(CalcTransform(pos.position, 0.5) * m_shipScale * ShipRotations[pos.direction], m_shipModels[type]);
 	}
 
-	void DrawSquaresBySetupInfo(SceneRenderer& renderer)
+	// Setup phase
+	//-------------
+
+	void SetupPhase_DrawSquares(SceneRenderer& renderer)
 	{
 		DrawSquares(renderer, [this](auto x, auto y) -> vec4 {
 			auto iter = m_InvalidPlacementSquares.find({ x, y });
@@ -274,28 +294,83 @@ public:
 				}
 			}
 			return OceanColor; // TODO: Get colors by game info
-		});
+			});
 	}
 
-	void setTransform(glm::mat4 transform)
+	void SetupPhase_PlaceShip(SceneRenderer& renderer, ShipType type)
 	{
-		m_transform = transform;
-		size_t i = 0;
-		for (uint32_t y = 0; y < m_height; y++)
-			for (uint32_t x = 0; x < m_width; x++, i++)
-				m_fieldSquareTransforms[i] = CalcTransform({ x + 0.5F, y + 0.5F });
+
+		// Get rendering variables
+		auto selected = GetCursorPos(renderer);
+		if (selected.x < 0.0F || selected.x > m_width || selected.y < 0.0F || selected.y > m_height)
+			return; // Don't run if cursor is out of bounds.
+		auto pos = GetShipPos(selected, type);
+		
+		// Convert rendering variables to network compatible ones
+		auto shipClass = NetCastType(type);
+		auto shipOrientation = NetCastRot(pos.direction);
+		auto shipPosition = NetCastPos(type, pos);
+
+		// Probe the state before placing the ship
+		// and place it if no invalid states are returned.
+		auto result = m_playerField->ProbeShipPlacement(shipClass, shipOrientation, shipPosition);
+		if (result.empty())
+			m_playerField->PlaceShipBypassSecurityChecks(shipClass, shipOrientation, shipPosition);
 	}
 
-	size_t size() const noexcept
+	void SetupPhase_PreviewPlacement(SceneRenderer& renderer, ShipType type)
 	{
-		return m_width * m_height;
+
+		// Get ship position from cursor position
+		auto selected = GetCursorPos(renderer);
+		auto pos = GetShipPos(selected, type);
+
+		// Draw ship with the cursor position
+		DrawShip(renderer, type, pos);
+		
+		// Cast rendering variables to network compatible ones
+		auto shipClass = NetCastType(type);
+		auto shipOrientation = NetCastRot(pos.direction);
+		auto shipPosition = NetCastPos(type, pos);
+
+		// Ensure it's a new probe
+		if (m_LastProbedShipClass == shipClass
+			&& m_LastProbedShipOrientation == shipOrientation
+			&& m_LastProbedPoint == shipPosition)
+			return;
+		
+		// Set them to the last probed variables
+		m_LastProbedShipClass = shipClass;
+		m_LastProbedShipOrientation = shipOrientation;
+		m_LastProbedPoint = shipPosition;
+
+		// Probe the ship placement with these variables
+		auto result = m_playerField->ProbeShipPlacement(shipClass, shipOrientation, shipPosition);
+
+		// Clear state
+		m_InvalidPlacementSquares.clear();
+		
+		// Save collision states to preview them on the field
+		for (auto& [coords, status] : result)
+		{
+			switch (status)
+			{
+			case GmPlayerField::STATUS_DIRECT_COLLIDE:
+			case GmPlayerField::STATUS_INDIRECT_COLLIDE:
+				m_InvalidPlacementSquares.try_emplace(u8vec2{ coords.XComponent, coords.YComponent }, status);
+				break;
+			default:
+				break;
+			}
+		}
 	}
 
-	size_t index(uint32_t x, uint32_t y) const noexcept
-	{
-		return m_width * y + x;
-	}
+	// Utility
+	//---------
 
+	/**
+	 * @brief Returns the location of the mouse on the game field.
+	 */
 	vec2 GetCursorPos(const SceneRenderer& renderer)
 	{
 
@@ -313,12 +388,12 @@ public:
 			m_topLeftPos.x + (m_width * m_sqaureSize),
 			1.0F
 		);
-		
+
 		// Convert cursor glfw position to an opengl canvas position
 		auto cursorPos = Window::Properties::CursorPos;
 		auto winSize = Window::Properties::WindowSize;
 		auto cursorPosGL = glm::vec2(
-			(cursorPos.x / (winSize.x - 1)) *  2.0F - 1.0F,
+			(cursorPos.x / (winSize.x - 1)) * 2.0F - 1.0F,
 			(cursorPos.y / (winSize.y - 1)) * -2.0F + 1.0F
 		);
 
@@ -336,12 +411,16 @@ public:
 			cursorPosGL.x - topLeft.x,
 			topLeft.y - cursorPosGL.y
 		);
-		
+
 		// Scale the position, so 1 unit equals a full square
 		return cursorPosGLTL / sqSize;
 
 	}
 
+	/**
+	 * @brief Converts a cursor position to a ship position
+	 *        for a specific ship type.
+	 */
 	ShipPosition GetShipPos(vec2 pos, ShipType type)
 	{
 
@@ -351,7 +430,7 @@ public:
 
 		// Get mouse location (without floating point)
 		auto flooredPosition = floor(pos);
-		vec2 limits { m_width, m_height };
+		vec2 limits{ m_width, m_height };
 
 		// Get ship direction
 		auto pointerTarget = clamp(
@@ -363,7 +442,7 @@ public:
 		bool horizontal = abs(shipDirection.x) > abs(shipDirection.y);
 
 		// Setup Primary / Secondary
-		typedef float vec2::*FloatMemPointer;
+		typedef float vec2::* FloatMemPointer;
 		FloatMemPointer primary, secondary;
 		if (horizontal)
 		{
@@ -403,10 +482,10 @@ public:
 
 		// Calculate looking direction of the ship (enum)
 		uint8_t sdir = (horizontal ? SD_HORIZONTAL : SD_VERTICAL)
-					 | (forward    ? SD_FORWARD    : SD_BACKWARDS);
+			| (forward ? SD_FORWARD : SD_BACKWARDS);
 
 		// Return ship position
-		return ShipPosition {
+		return ShipPosition{
 			.position = result,
 			.direction = (ShipDirection)sdir
 		};
@@ -420,52 +499,6 @@ public:
 			height,
 			m_topLeftPos.x + pos.x * m_sqaureSize)
 		);
-	}
-
-	void SetupPhase_PlaceShip(SceneRenderer& renderer, ShipType type)
-	{
-		auto selected = GetCursorPos(renderer);
-		if (selected.x < 0.0F || selected.x > m_width || selected.y < 0.0F || selected.y > m_height)
-			return;
-		auto pos = GetShipPos(selected, type);
-		
-		auto shipClass = NetCastType(type);
-		auto shipOrientation = NetCastRot(pos.direction);
-		auto shipPosition = NetCastPos(type, pos);
-		auto result = m_playerField->ProbeShipPlacement(shipClass, shipOrientation, shipPosition);
-		if (result.empty())
-		{
-			m_playerField->PlaceShipBypassSecurityChecks(shipClass, shipOrientation, shipPosition);
-		}
-	}
-
-	void DrawShip(SceneRenderer& renderer, ShipType type, ShipPosition pos)
-	{
-		renderer.draw(CalcTransform(pos.position, 0.5) * m_shipScale * ShipRotations[pos.direction], m_shipModels[type]);
-	}
-
-	void SetupPhase_PreviewPlacement(SceneRenderer& renderer, ShipType type)
-	{
-		auto selected = GetCursorPos(renderer);
-		auto pos = GetShipPos(selected, type);
-		DrawShip(renderer, type, pos);
-		auto shipClass = NetCastType(type);
-		auto shipOrientation = NetCastRot(pos.direction);
-		auto shipPosition = NetCastPos(type, pos);
-		auto result = m_playerField->ProbeShipPlacement(shipClass, shipOrientation, shipPosition);
-		m_InvalidPlacementSquares.clear();
-		for (auto& [coords, status] : result)
-		{
-			switch (status)
-			{
-			case GmPlayerField::STATUS_DIRECT_COLLIDE:
-			case GmPlayerField::STATUS_INDIRECT_COLLIDE:
-				m_InvalidPlacementSquares.try_emplace(u8vec2{ coords.XComponent, coords.YComponent }, status);
-				break;
-			default:
-				break;
-			}
-		}
 	}
 
 private:
@@ -493,8 +526,13 @@ private:
 
 	// Data for rendering ships
 	float m_shipScaleValue;
-	glm::mat4 m_shipScale;
+	mat4 m_shipScale;
 	Model* m_shipModels[ShipTypeCount];
+	
+	// Ship collision
+	ShipClass m_LastProbedShipClass;
+	ShipRotation m_LastProbedShipOrientation;
+	PointComponent m_LastProbedPoint;
 	unordered_map<u8vec2, GmPlayerField::PlayFieldStatus> m_InvalidPlacementSquares { };
 
 	// Game manager

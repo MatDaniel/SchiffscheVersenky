@@ -79,7 +79,7 @@ public:
 		gameField->DrawBackground(renderer);
 		gameField->DrawPlacedShips(renderer);
 		gameField->SetupPhase_PreviewPlacement(renderer, (ShipType)selectedType);
-		gameField->DrawSquaresBySetupInfo(renderer);
+		gameField->SetupPhase_DrawSquares(renderer);
 		renderer.render();
 
 	}
