@@ -58,6 +58,16 @@ public:
      */
     virtual void OnCursorMoved() { };
 
+    /**
+     * @brief Keyboard key callback.
+     */
+    virtual void OnKeyboardKey(int key, int action, int mods) { };
+
+    /**
+     * @brief Mouse button callback.
+     */
+    virtual void OnMouseButton(int key, int action, int mods) { };
+
 };
 
 // Management Implementation

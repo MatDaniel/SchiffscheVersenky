@@ -4,8 +4,11 @@ module;
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
 #include <imgui.h>
+#include <GLFW/glfw3.h>
 
+#include <memory>
 #include <string>
+#include <utility>
 
 export module Scenes.FieldSetup;
 import Draw.Window;
@@ -15,6 +18,13 @@ import Draw.Resources;
 import Draw.Renderer;
 import Game.GameField;
 import Game.ShipInfo;
+import Network.Client;
+import GameManagment;
+
+using namespace GameManagment;
+using namespace Network;
+using namespace std;
+using namespace Draw;
 
 export class FieldSetupScene final : public Scene
 {
@@ -22,6 +32,10 @@ public:
 
 	void OnInit() override
 	{
+
+		auto& manager = GameManager2::CreateObject(PointComponent{4,4}, ShipCount{2,2,2,2,2});
+		gmGameField = manager.TryAllocatePlayerWithId(1);
+		gameField = make_unique<GameField>(manager, gmGameField);
 
 		auto& info = renderer.info();
 
@@ -42,10 +56,7 @@ public:
 		renderer.uploadProjection();
 
 		// Setup game field
-		gameField.setTransform(glm::scale(glm::mat4(1.0F), glm::vec3(21.0F, 0.0F, 21.0F)));
-		gameField.color(gameField.index(3, 3)) = glm::vec4(1.0F, 0.0F, 0.0F, 1.0F);
-		gameField.color(gameField.index(9, 9)) = glm::vec4(0.0F, 1.0F, 0.0F, 1.0F);
-		gameField.color(gameField.index(12, 3)) = glm::vec4(0.0F, 0.0F, 0.0F, 1.0F);
+		gameField->setTransform(glm::scale(glm::mat4(1.0F), glm::vec3(21.0F, 21.0F, 21.0F)));
 
 	}
 
@@ -57,21 +68,19 @@ public:
 		glClearColor(0.8F, 0.2F, 0.1F, 1.0F);
 		glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
-		gameField.draw(renderer);
-		renderer.render();
-
+		ImGui::SetNextWindowPos(ImVec2 { 600, 10 });
 		ImGui::Begin("GameField Debug", nullptr, ImGuiWindowFlags_NoSavedSettings);
-		auto selected = gameField.cursorPos(renderer);
-		ImGui::Text("Selected Field: { %f ; %f }", selected.x, selected.y);
 		ImGui::Combo("Ship Type", &selectedType, [](void* data, int idx, const char** out) -> bool {
 			*out = ShipInfos[idx].name;
 			return true;
-		}, nullptr, ShipCount);
-		auto shipPos = gameField.shipPos(selected, (ShipType)selectedType);
-		ImGui::Text("Ship position: { %f ; %f }", shipPos.position.x, shipPos.position.y);
-		ImGui::Text("Ship direction: %d", shipPos.direction);
-		gameField.render(renderer, shipPos, (ShipType)selectedType);
+			}, nullptr, ShipTypeCount);
 		ImGui::End();
+
+		gameField->DrawBackground(renderer);
+		gameField->DrawPlacedShips(renderer);
+		gameField->SetupPhase_PreviewPlacement(renderer, (ShipType)selectedType);
+		gameField->DrawSquaresBySetupInfo(renderer);
+		renderer.render();
 
 	}
 
@@ -81,13 +90,29 @@ public:
 		renderer.uploadProjection();
 	}
 
+	void OnMouseButton(int button, int action, int mods) override
+	{
+		if (button == GLFW_MOUSE_BUTTON_1 && action == GLFW_PRESS)
+		{
+			gameField->SetupPhase_PlaceShip(renderer, (ShipType)selectedType);
+		}
+	}
+
+	~FieldSetupScene()
+	{
+		GameManager2::ManualReset();
+	}
+
 private:
 
+	// Renderer
 	SceneRenderer renderer;
 
-	// Resources
-	GameField gameField { 12, 12 };
+	// Game Field
+	GmPlayerField* gmGameField;
+	unique_ptr<GameField> gameField;	
 
+	// Debug
 	int selectedType = 0;
 	
 };

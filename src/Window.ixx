@@ -13,65 +13,89 @@ module;
 export module Draw.Window;
 import Draw.Scene;
 
+// Logger
 export SpdLogger WindowLog;
-static GLFWwindow* s_handle { nullptr };
-static glm::uvec2 s_windowSize { 960, 540 };
-static glm::vec2 s_cursorPos { 960, 540 };
+
+namespace
+{
+
+	// Properties
+	static GLFWwindow* s_handle{ nullptr };
+	static glm::uvec2 s_windowSize{ 960, 540 };
+	static glm::vec2 s_cursorPos{ 960, 540 };
 
 #ifndef NDEBUG
 
-/**
- * @brief A callback for errors.
- * @param error The error code.
- * @param desc The error description.
- */
-static void ErrorCallbackGLFW(int error, const char* desc)
-{
-	SPDLOG_LOGGER_ERROR(WindowLog, "Error-Code {}: {}", error, desc);
-}
+	/**
+	 * @brief A callback for errors.
+	 * @param error The error code.
+	 * @param desc The error description.
+	 */
+	static void ErrorCallbackGLFW(int error, const char* desc)
+	{
+		SPDLOG_LOGGER_ERROR(WindowLog, "Error-Code {}: {}", error, desc);
+	}
 
 #endif
 
-/**
- * @brief A callback for window resize.
- * @param window The resized window.
- * @param width The new window width.
- * @param height The new window height.
- */
-static void framebufferSizeCallback(GLFWwindow* window, int width, int height)
-{
+	/**
+	 * @brief A callback for window resize.
+	 * @param window The resized window.
+	 * @param width The new window width.
+	 * @param height The new window height.
+	 */
+	static void CallbackFramebufferSize(GLFWwindow* window, int width, int height)
+	{
 
-    // Save window size
-    s_windowSize.x = width;
-    s_windowSize.y = height;
+		// Save window size
+		s_windowSize.x = width;
+		s_windowSize.y = height;
 
-    // Set viewport to the size of the actual window
-    glViewport(0, 0, width, height);
+		// Set viewport to the size of the actual window
+		glViewport(0, 0, width, height);
 
-    // Process callback
-    auto* scene = Scene::Current();
-    if (scene)
-        scene->OnWindowResize();
+		// Process callback
+		auto* scene = Scene::Current();
+		if (scene)
+			scene->OnWindowResize();
 
-}
+	}
 
-/**
- * @brief A callback for the mouse cursor.
- *        Will be called every time the cursor position changes.
- * @param window The window where the cursor moved.
- * @param xpos The new x position.
- * @param ypos The new y position.
- */
-static void cursorPosCallback(GLFWwindow* window, double xpos, double ypos)
-{
+	/**
+	 * @brief A callback for the mouse cursor.
+	 *        Will be called every time the cursor position changes.
+	 * @param window The window where the cursor moved.
+	 * @param xpos The new x position.
+	 * @param ypos The new y position.
+	 */
+	static void CallbackCursorPos(GLFWwindow* window, double xpos, double ypos)
+	{
 
-    // Save cursor location
-    s_cursorPos = glm::vec2(xpos, ypos);
+		// Save cursor location
+		s_cursorPos = glm::vec2(xpos, ypos);
 
-    // Process callback
-	auto* scene = Scene::Current();
-    if (scene)
-        scene->OnCursorMoved();
+		// Process callback
+		auto* scene = Scene::Current();
+		if (scene)
+			scene->OnCursorMoved();
+
+	}
+
+	static void CallbackKeyboardKey(GLFWwindow* window, int key, int scancode, int action, int mods)
+	{
+		// Process callback
+		auto* scene = Scene::Current();
+		if (scene)
+			scene->OnKeyboardKey(key, action, mods);
+	}
+
+	static void CallbackMouseButton(GLFWwindow* window, int button, int action, int mods)
+	{
+		// Process callback
+		auto* scene = Scene::Current();
+		if (scene)
+			scene->OnMouseButton(button, action, mods);
+	}
 
 }
 
@@ -120,9 +144,12 @@ export namespace Window
 		glfwSwapInterval(1); // VSync
 
 		// Callbacks
-		glfwSetCursorPosCallback(s_handle, cursorPosCallback);
-		glfwSetFramebufferSizeCallback(s_handle, framebufferSizeCallback);
+		glfwSetCursorPosCallback(s_handle, CallbackCursorPos);
+		glfwSetFramebufferSizeCallback(s_handle, CallbackFramebufferSize);
+		glfwSetKeyCallback(s_handle, CallbackKeyboardKey);
+		glfwSetMouseButtonCallback(s_handle, CallbackMouseButton);
 
+		// Debug
 		SPDLOG_LOGGER_INFO(WindowLog, "Initialized window");
 
 		// Exit with success

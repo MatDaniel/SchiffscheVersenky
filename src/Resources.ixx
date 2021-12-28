@@ -29,6 +29,7 @@ module;
 export module Draw.Resources;
 import Draw.Renderer.Input;
 import Game.ShipInfo;
+using namespace Draw;
 
 // -- Resource Store --
 // A unified place for any Resource.
@@ -976,7 +977,7 @@ export namespace Resources
 
 		// Models
 		Resources::emplace<Model>("Teapot", Resource(IDR_MESH_TEAPOT));
-		for (size_t i = 0; i < ShipCount; i++)
+		for (size_t i = 0; i < ShipTypeCount; i++)
 			Resources::emplace<Model>(ShipInfos[i].resName, Resource(ShipInfos[i].resId));
 
 	}
