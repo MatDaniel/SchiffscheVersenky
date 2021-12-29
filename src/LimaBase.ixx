@@ -29,9 +29,10 @@ public:
 		return *InstanceObject;
 	}
 	static T& GetInstance() {
-		TRACE_FUNTION_PROTO;
-		
-		return *InstanceObject;
+		TRACE_FUNTION_PROTO; return *InstanceObject;
+	}
+	static T* GetInstancePointer() {
+		TRACE_FUNTION_PROTO; return InstanceObject;
 	}
 	static void ManualReset() {
 		TRACE_FUNTION_PROTO;
