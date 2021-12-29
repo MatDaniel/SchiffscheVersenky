@@ -32,7 +32,7 @@ public:
 		TRACE_FUNTION_PROTO; return *InstanceObject;
 	}
 	static T* GetInstancePointer() {
-		TRACE_FUNTION_PROTO; return InstanceObject;
+		TRACE_FUNTION_PROTO; return InstanceObject.get();
 	}
 	static void ManualReset() {
 		TRACE_FUNTION_PROTO;

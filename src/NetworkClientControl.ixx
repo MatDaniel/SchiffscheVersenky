@@ -6,6 +6,7 @@ module;
 #define FD_SETSIZE 1
 #include "BattleShip.h"
 #include <memory>
+#include <queue>
 
 export module Network.Client;
 export import LayerBase;
@@ -37,6 +38,11 @@ export namespace Network::Client {
 			NwRequestPacket& NetworkRequest, // a reference to a network request packet describing the current request
 			void*            UserContext     // A pointer to caller defined data thats forwarded to the callback in every call, could be the GameManager class or whatever
 			);
+		struct PacketQueueEntry {          // A Entry in the packet queue of data to be send later
+			unique_ptr<char[]> DataPacket; // The actual data or rest of the data to send
+			size_t SizeOfDatapack;         // The length of data to be send stored
+		};
+
 
 		~NetworkManager2() {
 			TRACE_FUNTION_PROTO;
@@ -44,6 +50,66 @@ export namespace Network::Client {
 			// SPDLOG_LOGGER_INFO(NetworkLog, "Client network manager destroyed, cleaning up sockets");
 		}
 
+		
+		static constexpr auto READ_MASK = 1;
+		static constexpr auto WRITE_MASK = 2;
+		static constexpr auto EXCEPT_MASK = 4;
+		static constexpr auto CONNECTED_MASK = 8;
+		int32_t CheckoutServerSocket() { // Checks out the servers associated socket for updates
+			                             // and notifies the caller
+			TRACE_FUNTION_PROTO;
+
+			// FD_SET list (in order: read, write, except) and initialize
+			fd_set DescriptorTable[3];
+			for (auto i = 0; i < 3; ++i) {
+				FD_ZERO(&DescriptorTable[i]); FD_SET(GameServer, &DescriptorTable[i]);
+			}
+			timeval Timeout{};
+			auto Result = select(0,
+				&DescriptorTable[0],
+				&DescriptorTable[1],
+				&DescriptorTable[2],
+				&Timeout);
+
+			// Evaluate result of select
+			auto MergeOutput = 0;
+			switch (Result) {
+			case SOCKET_ERROR:
+				SPDLOG_LOGGER_ERROR(NetworkLog, "Socket query failed with {}",
+					WSAGetLastError());
+				return MergeOutput |= EXCEPT_MASK;
+
+			case 0:
+				SPDLOG_LOGGER_TRACE(NetworkLog, "Socket query, no status information received, pending");
+				return NwRequestPacket::STATUS_WORK_PENDING;
+
+			default:
+				if (!SocketAttached) {
+					if (DescriptorTable[2].fd_count)
+						return SPDLOG_LOGGER_ERROR(NetworkLog, "Failed to connect to sever, refused connection"),
+							MergeOutput |= EXCEPT_MASK;
+
+					if (DescriptorTable[1].fd_count) {
+						freeaddrinfo(ServerInformation);
+						SocketAttached = true;
+						SPDLOG_LOGGER_INFO(NetworkLog, "Server connected on socket, switched controller to io mode");
+						return MergeOutput |= CONNECTED_MASK;
+					}
+				}
+
+				if (DescriptorTable[2].fd_count)
+					return SocketAttached = false,
+						SPDLOG_LOGGER_ERROR(NetworkLog, "An error occured on the socket, while probing for socket state"),
+						MergeOutput |= EXCEPT_MASK;
+
+				if (DescriptorTable[0].fd_count)
+					MergeOutput |= READ_MASK | CONNECTED_MASK;
+				if (DescriptorTable[1].fd_count)
+					MergeOutput |= WRITE_MASK | CONNECTED_MASK;
+			}
+
+			return MergeOutput;
+		}
 
 		NwRequestBase::NwRequestStatus
 		ExecuteNetworkRequestHandlerWithCallback( // Probes requests and prepares IORP's for asynchronous networking
@@ -53,50 +119,51 @@ export namespace Network::Client {
 			void*         UserContext             // some user provided polymorphic value forwarded to the handler routine
 		) {
 			TRACE_FUNTION_PROTO;
-			
-			// Check if Multiplexer has attached to server 
-			if (!SocketAttached) {
 
-				fd_set WriteSet;
-				FD_ZERO(&WriteSet);
-				FD_SET(GameServer, &WriteSet);
-				fd_set ExceptionSet;
-				FD_ZERO(&ExceptionSet);
-				FD_SET(GameServer, &ExceptionSet);
-				timeval Timeout{};
-				auto Result = select(0, nullptr,
-					&WriteSet,
-					&ExceptionSet,
-					&Timeout);
+			// Check if Multiplexer has attached to server
+			auto Result = CheckoutServerSocket();
+			if (!(Result & CONNECTED_MASK)) // !SocketAttached
+				return NwRequestPacket::STATUS_WORK_PENDING;
+
+			// Check if we can and need to push new data to the socket
+			if (Result & WRITE_MASK &&
+				PacketQueue.size()) {
+
+				// The socket is ready to handle and send data
+				// Evil variable shadowing btw.
+				auto& InternalPacketEntry = PacketQueue.front();
+				auto Result = send(GameServer,
+					InternalPacketEntry.DataPacket.get(),
+					InternalPacketEntry.SizeOfDatapack, 0);
 
 				switch (Result) {
 				case SOCKET_ERROR:
-					SPDLOG_LOGGER_ERROR(NetworkLog, "Socket query failed with {}",
-						WSAGetLastError());
-					return NwRequestPacket::STATUS_SOCKET_ERROR;
-
-				case 0:
-					SPDLOG_LOGGER_TRACE(NetworkLog, "Socket query, no status information received, pending");
-					return NwRequestPacket::STATUS_WORK_PENDING;
-
-				case 1:
-					if (WriteSet.fd_count) {
-
-						freeaddrinfo(ServerInformation);
-						SocketAttached = true;
-						SPDLOG_LOGGER_INFO(NetworkLog, "Server connected on socket, switched controller to io mode");
+					switch (auto LastError = WSAGetLastError()) {
+					case WSAEWOULDBLOCK:
+						SPDLOG_LOGGER_WARN(NetworkLog, "Could not send delayed packet");
 						break;
+
+					default:
+						SPDLOG_LOGGER_ERROR(NetworkLog, "send failed to properly transmit delayed package");
+						return NwRequestPacket::STATUS_SOCKET_ERROR;
 					}
-					if (ExceptionSet.fd_count) {
-						return SPDLOG_LOGGER_ERROR(NetworkLog, "Failed to connect to sever, refused connection"),
-							NwRequestPacket::STATUS_FAILED_TO_CONNECT;
-					}
+					break;
+
+				default:
+					SPDLOG_LOGGER_INFO(NetworkLog, "Queued package was transmited");
+					if (Result < InternalPacketEntry.SizeOfDatapack)
+						SPDLOG_LOGGER_WARN(NetworkLog, "The message was not fully send {}<{}",
+							Result, InternalPacketEntry.SizeOfDatapack);
+					PacketQueue.pop();
 				}
 			}
 
+			// Check if we can receive data and exit if not
+			if (!(Result & READ_MASK))
+				return NwRequestPacket::STATUS_REQUEST_COMPLETED;
+
 			// Continue execution normally (when server is attached)
 			SPDLOG_LOGGER_TRACE(NetworkLog, "Checking socker for messages to process");
-			long Result = 0;
 			auto PacketBuffer = make_unique<char[]>(PACKET_BUFFER_SIZE);
 			do {
 				Result = recv(GameServer,
@@ -170,6 +237,49 @@ export namespace Network::Client {
 			TRACE_FUNTION_PROTO; return GameServer;
 		}
 
+		int32_t SendShipControlPackageDynamic(    // Sends a package to the connected server 
+			const ShipSockControl& RequestPackage // Package to be send
+		) {
+			TRACE_FUNTION_PROTO;
+
+			// get size of package dynamically
+			// send package
+
+			auto PackageSize = sizeof(RequestPackage); // this has to be done properly, skipping it for now
+
+
+			auto Result = send(GameServer,
+				(char*)&RequestPackage,
+				PackageSize, 0);
+
+			switch (Result) {
+			case SOCKET_ERROR:
+				switch (auto LastError = WSAGetLastError()) {
+				case WSAEWOULDBLOCK:
+				
+					// Queue the request for delayed handling
+					PacketQueue.emplace(make_unique<char[]>(PackageSize), PackageSize);
+					memcpy(PacketQueue.front().DataPacket.get(),
+						&RequestPackage, PackageSize);
+					SPDLOG_LOGGER_INFO(NetworkLog, "send() wasn't able to complete immediately, request queued for later handling");
+					return 0;
+
+				default:
+					SPDLOG_LOGGER_ERROR(NetworkLog, "untreated socket error from send()");
+					return SOCKET_ERROR;
+				}
+				break;
+
+			default:
+				SPDLOG_LOGGER_INFO(NetworkLog, "package was transmited");
+				if (Result < PackageSize)
+					SPDLOG_LOGGER_WARN(NetworkLog, "The message was not fully send {}<{}",
+						Result, PackageSize);
+				return Result;
+			}
+		}
+
+
 	private:
 		NetworkManager2(
 			const char* ServerName, // aka ipv4/6 address
@@ -237,8 +347,7 @@ export namespace Network::Client {
 				GameServer);
 		}
 
-
-
+		queue<PacketQueueEntry> PacketQueue;
 		SOCKET    GameServer = INVALID_SOCKET;
 		bool      SocketAttached = false;
 		addrinfo* ServerInformation = nullptr;

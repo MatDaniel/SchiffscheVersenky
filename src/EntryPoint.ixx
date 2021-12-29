@@ -345,7 +345,6 @@ namespace Client {
 		PointComponent InternalFieldDimensions;
 		ShipCount      NumberOFShipsPerType;
 		bool           StateReady;
-
 	};
 
 	void ManagementDispatchRoutine(
@@ -362,7 +361,7 @@ namespace Client {
 			case ShipSockControl::NO_COMMAND_SERVER:
 				SPDLOG_LOGGER_INFO(LayerLog, "Debug command received, invalid handling");
 				__debugbreak();
-				NetworkRequest.CompleteIoRequest(NwRequestPacket::STATUS_REQUEST_COMPLETED)
+				NetworkRequest.CompleteIoRequest(NwRequestPacket::STATUS_REQUEST_COMPLETED);
 				break;
 
 			case ShipSockControl::STARTUP_FIELDSIZE: {
@@ -379,6 +378,7 @@ namespace Client {
 				// Get Engine passed init state and set shipnumbers
 				auto DispatchState = (ManagmentDispatchState*)UserContext;
 				DispatchState->NumberOFShipsPerType = NetworkRequest.IoControlPacketData->GameShipNumbers;
+				DispatchState->StateReady = true; // hacky, will refine later
 				SPDLOG_LOGGER_INFO(LayerLog, "Recored and stored server defined shipcounts");
 				NetworkRequest.CompleteIoRequest(NwRequestPacket::STATUS_REQUEST_COMPLETED);
 				break;
