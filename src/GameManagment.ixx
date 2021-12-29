@@ -36,8 +36,8 @@ export namespace GameManagment {
 			STATUS_NO_COLLISION,
 			STATUS_SHIP_PLACED,
 		};
-		using ProbeStatusList = vector<pair<PointComponent, PlayFieldStatus>>;
-
+		using StatusResponseT = pair<PointComponent, PlayFieldStatus>;
+		using ProbeStatusList = span<StatusResponseT>;
 
 		GmPlayerField(
 			      PointComponent FieldSizes,
@@ -72,33 +72,51 @@ export namespace GameManagment {
 		) {
 			TRACE_FUNTION_PROTO;
 
+			// Check if we can utilize the cached test and reuse it (just has to match the location)
+			if (InternalProbeListCached.CompareCacheMetaData(ShipCoordinates,
+				TypeOfShip,
+				ShipOrientation))
+				return InternalProbeListCached;
+			SPDLOG_LOGGER_DEBUG(GameLog, "Lookup cache invalid, rebuilding...");
+
 			// Walk OccupationTable and check if slot for specific ship type is available
-			ProbeStatusList ProbeList;
 			for (auto i = 0; auto& ShipEntry : FieldShipStates)
 				if (ShipEntry.ShipType == TypeOfShip)
-					if (++i >= NumberOfShipsPerType.ShipCounts[TypeOfShip])
-						return ProbeList.emplace_back(ProbeStatusList::value_type{ {0, 0}, STATUS_NOT_ENOUGH_SLOTS }),
-							SPDLOG_LOGGER_ERROR(GameLog, "Conflicting ship category, all ships of type already in use"),
-							ProbeList;
+					if (++i >= NumberOfShipsPerType.ShipCounts[TypeOfShip]) {
+
+						InternalProbeListCached.emplace_back(StatusResponseT{ {}, STATUS_NOT_ENOUGH_SLOTS });
+						InternalProbeListCached.SaveProbeState(ShipCoordinates,
+							TypeOfShip,
+							ShipOrientation);
+						SPDLOG_LOGGER_ERROR(GameLog, "Conflicting ship category, all ships of type already in use");
+						return InternalProbeListCached;
+					}
+
 
 			// Check if the ship even fits within the field at its cords
 			auto ShipEndPosition = CalculateCordinatesOfPartByDistanceWithShip(
 				ShipCoordinates, ShipOrientation,
-				ShipLengthPerType[TypeOfShip]);
-			if (ShipCoordinates.XComponent > FieldDimensions.XComponent ||
-				ShipCoordinates.YComponent > FieldDimensions.YComponent)
-				ProbeList.emplace_back(ProbeStatusList::value_type{ ShipCoordinates, STATUS_OUT_OF_BOUNDS });
-			if (ShipEndPosition.XComponent > FieldDimensions.XComponent ||
-				ShipEndPosition.YComponent > FieldDimensions.YComponent)
-				ProbeList.emplace_back(ProbeStatusList::value_type{ ShipEndPosition, STATUS_OUT_OF_BOUNDS });
-			if (ProbeList.size())
-				return SPDLOG_LOGGER_WARN(GameLog, "{{{}:{}}} and {{{}:{}}} may not be within allocated field",
+				ShipLengthPerType[TypeOfShip] - 1);
+			if (ShipCoordinates.XComponent >= FieldDimensions.XComponent ||
+				ShipCoordinates.YComponent >= FieldDimensions.YComponent)
+				InternalProbeListCached.emplace_back(StatusResponseT{ ShipCoordinates, STATUS_OUT_OF_BOUNDS });
+			if (ShipEndPosition.XComponent >= FieldDimensions.XComponent ||
+				ShipEndPosition.YComponent >= FieldDimensions.YComponent)
+				InternalProbeListCached.emplace_back(StatusResponseT{ ShipEndPosition, STATUS_OUT_OF_BOUNDS });
+			if (InternalProbeListCached.GetNumberOfCommits()) {
+				
+				SPDLOG_LOGGER_WARN(GameLog, "{{{}:{}}} and {{{}:{}}} may not be within allocated field",
 					ShipCoordinates.XComponent, ShipCoordinates.YComponent,
-					ShipEndPosition.XComponent, ShipEndPosition.YComponent),
-					ProbeList;
+					ShipEndPosition.XComponent, ShipEndPosition.YComponent);
+				InternalProbeListCached.SaveProbeState(ShipCoordinates,
+					TypeOfShip,
+					ShipOrientation);
+				return InternalProbeListCached;
+			}
 
 			// Validate ship placement, check for collisions and illegal positioning
 			// This loop iterates through all cell positions of ship parts,
+			vector<StatusResponseT> PrivateCollisionCommitList;
 			for (auto i = 0; i < ShipLengthPerType[TypeOfShip]; ++i) {
 
 				// IteratorPosition is always valid as its within the field and has been validated previously
@@ -114,8 +132,8 @@ export namespace GameManagment {
 							IteratorPosition.YComponent + y };
 
 						// Filter out collision checks outside the field, assumes unsigned types
-						if (LookupLocation.XComponent > FieldDimensions.XComponent ||
-							LookupLocation.YComponent > FieldDimensions.YComponent)
+						if (LookupLocation.XComponent >= FieldDimensions.XComponent ||
+							LookupLocation.YComponent >= FieldDimensions.YComponent)
 							continue;
 
 						// Lookup location and apply test, construct collision list from there
@@ -128,7 +146,7 @@ export namespace GameManagment {
 
 							// Check if location has already been reported or updated to direct if falsely reported as indirect
 							bool IsAlreadyReported = false;
-							for (auto& [ReportedLocation, StatusMessage] : ProbeList)
+							for (auto& [ReportedLocation, StatusMessage] : PrivateCollisionCommitList)
 								if (ReportedLocation == LookupLocation) {
 									if (ReportedLocation == IteratorPosition &&
 										StatusMessage == STATUS_INDIRECT_COLLIDE) {
@@ -141,7 +159,7 @@ export namespace GameManagment {
 									IsAlreadyReported = true; break;
 								}
 							if (!IsAlreadyReported)
-								ProbeList.emplace_back(ProbeStatusList::value_type{ LookupLocation, TypeOfCollision }),
+								PrivateCollisionCommitList.emplace_back(StatusResponseT{ LookupLocation, TypeOfCollision }),
 								SPDLOG_LOGGER_WARN(GameLog, "Reported {} at {{{}:{}}}",
 									LookupLocation == IteratorPosition ? "collision" : "touching",
 									LookupLocation.XComponent, LookupLocation.YComponent);
@@ -149,7 +167,13 @@ export namespace GameManagment {
 					}
 			}
 
-			return ProbeList;
+			// Merge Collision list into status list and push to cache
+			InternalProbeListCached.insert(InternalProbeListCached.end(),
+				PrivateCollisionCommitList.begin(), PrivateCollisionCommitList.end());
+			InternalProbeListCached.SaveProbeState(ShipCoordinates,
+				TypeOfShip,
+				ShipOrientation);
+			return InternalProbeListCached;
 		}
 
 		void PlaceShipBypassSecurityChecks( // This allocates a shipstate and enlists it in the fieldstate
@@ -169,12 +193,17 @@ export namespace GameManagment {
 				GetCellReferenceByCoordinates(IteratorPosition) = CELL_IS_IN_USE;
 			}
 
-			// Finally add the ship to our list;
+			// Finally add the ship to our list, and invalidate our lookup cache
 			FieldShipStates.push_back(ShipState{
 				.ShipType = TypeOfShip,
 				.Cordinates = ShipCoordinates,
 				.Rotation = ShipOrientation
 				});
+			
+			// We must also now invalidate the the probe cache as the field state has changed
+			// probing the same location as previously where now is a ship could elsewise 
+			// lead to collisions being missed
+			InternalProbeListCached.ProbeInvalidate();
 			SPDLOG_LOGGER_INFO(GameLog, "Registered ship in list at location {{{}:{}}}",
 				ShipCoordinates.XComponent, ShipCoordinates.YComponent);
 		}
@@ -276,8 +305,8 @@ export namespace GameManagment {
 		}
 
 
-		auto GetShipStateList() {
-			TRACE_FUNTION_PROTO; return span(FieldShipStates);
+		span<const ShipState> GetShipStateList() const {
+			TRACE_FUNTION_PROTO; return FieldShipStates;
 		}
 
 
@@ -296,6 +325,79 @@ export namespace GameManagment {
 		const ShipCount         NumberOfShipsPerType;
 
 	private:
+		class ProbeListCache 
+			: public vector<StatusResponseT> {
+			enum {
+				CACHE_INVALID = 0,
+				CACHE_VALID,
+			} ValidationState{};
+
+		public:
+			bool CompareCacheMetaData(
+				PointComponent ShipLocation,
+				ShipClass      ShipType,
+				ShipRotation   ShipOrientation
+			) const {
+				TRACE_FUNTION_PROTO;
+
+				if (ValidationState == CACHE_INVALID)
+					return false;
+
+				// Specialization for treating multiple calls with a ship type with no free slots:
+				if (ShipType == LastShipType &&              // Must be the same ship type as previously recorded
+					size() > 0 &&                            // The probe cache must contain at least 1 entry
+					at(0).second == STATUS_NOT_ENOUGH_SLOTS) // First entry must signal not enough slots
+					return true;                             // We can now assume and skip checking cords
+
+				// Otherwise check if all meta data states match
+				return ShipLocation == LastTestedLocation
+					&& ShipType == LastShipType
+					&& ShipOrientation == LastShipOrientation;
+			}
+			void ProbeInvalidate() {
+				TRACE_FUNTION_PROTO;
+				
+				SizeOfListSinceLastPush = 0;
+				clear();
+				ValidationState = CACHE_INVALID;
+
+				SPDLOG_LOGGER_DEBUG(GameLog, "Invalidated probe cache");
+			}
+			void SaveProbeState(
+				PointComponent ShipLocation,
+				ShipClass      ShipType,
+				ShipRotation   ShipOrientation
+			) {
+				TRACE_FUNTION_PROTO;
+
+				// Deletes all previous commits since the last commit tho the cache
+				if (SizeOfListSinceLastPush)
+					erase(begin(), begin() + SizeOfListSinceLastPush);
+				SizeOfListSinceLastPush = size();
+
+				// Set meta data of current probe parameters
+				LastTestedLocation = ShipLocation;
+				LastShipType = ShipType;
+				LastShipOrientation = ShipOrientation;
+				ValidationState = CACHE_VALID;
+
+				SPDLOG_LOGGER_DEBUG(GameLog, "Commited {} entries to current probe cache",
+					size());
+			}
+			size_t GetNumberOfCommits() const {
+				TRACE_FUNTION_PROTO; return size() - SizeOfListSinceLastPush;
+			}
+			span<StatusResponseT> GetCurrentCommits() {
+				TRACE_FUNTION_PROTO; return { begin() + GetNumberOfCommits(), end() };
+			}
+
+		private:
+			PointComponent LastTestedLocation{};
+			ShipClass      LastShipType{};
+			ShipRotation   LastShipOrientation{};
+			size_t         SizeOfListSinceLastPush{};
+		} InternalProbeListCached;
+
 		PointComponent CalculateCordinatesOfPartByDistanceWithShip(
 			PointComponent ShipLocation,
 			ShipRotation   ShipOrientation,

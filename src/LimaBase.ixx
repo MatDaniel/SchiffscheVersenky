@@ -114,6 +114,7 @@ export namespace Network {
 
 	class PointComponent {
 	public:
+		static constexpr uint8_t INVALID_COORD = 0xff;
 		bool operator==(const PointComponent&) const = default;
 		
 		uint8_t XComponent{},
