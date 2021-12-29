@@ -334,12 +334,22 @@ namespace Server {
 	}
 }
 
+#endif
+
 // Internal client controller and client related utilities/parts of the layer manager
 namespace Client {
 	using namespace Network::Client;
 
+
+	struct ManagmentDispatchState {
+		PointComponent InternalFieldDimensions;
+		ShipCount      NumberOFShipsPerType;
+		bool           StateReady;
+
+	};
+
 	void ManagementDispatchRoutine(
-		NetworkManager2& NetworkDevice,
+		NetworkManager2* NetworkDevice,
 		NwRequestPacket& NetworkRequest,
 		void* UserContext
 	) {
@@ -352,7 +362,31 @@ namespace Client {
 			case ShipSockControl::NO_COMMAND_SERVER:
 				SPDLOG_LOGGER_INFO(LayerLog, "Debug command received, invalid handling");
 				__debugbreak();
-				return (void)NetworkRequest.CompleteIoRequest(NwRequestPacket::STATUS_REQUEST_COMPLETED);
+				NetworkRequest.CompleteIoRequest(NwRequestPacket::STATUS_REQUEST_COMPLETED)
+				break;
+
+			case ShipSockControl::STARTUP_FIELDSIZE: {
+
+				// Get Engine passed init state and set coords
+				auto DispatchState = (ManagmentDispatchState*)UserContext;
+				DispatchState->InternalFieldDimensions = NetworkRequest.IoControlPacketData->GameFieldSizes;
+				SPDLOG_LOGGER_INFO(LayerLog, "Recored and stored server defined playfield size");
+				NetworkRequest.CompleteIoRequest(NwRequestPacket::STATUS_REQUEST_COMPLETED);
+				break;
+			}
+			case ShipSockControl::STARTUP_SHIPCOUNTS: {
+
+				// Get Engine passed init state and set shipnumbers
+				auto DispatchState = (ManagmentDispatchState*)UserContext;
+				DispatchState->NumberOFShipsPerType = NetworkRequest.IoControlPacketData->GameShipNumbers;
+				SPDLOG_LOGGER_INFO(LayerLog, "Recored and stored server defined shipcounts");
+				NetworkRequest.CompleteIoRequest(NwRequestPacket::STATUS_REQUEST_COMPLETED);
+				break;
+			}
+
+
+
+
 
 			case ShipSockControl::CELL_STATE_SERVER: {
 				auto& GameManager = GameManager2::GetInstance();
@@ -364,19 +398,13 @@ namespace Client {
 			default:
 				break;
 			}
-
-
-
-
-
-
-
-			NetworkRequest.CompleteIoRequest(NwRequestPacket::STATUS_REQUEST_COMPLETED);
 			break;
+
+
+
 		}
 	}
 }
-#endif
 
 
 

@@ -33,8 +33,8 @@ export namespace Network::Client {
 		friend class MagicInstanceManagerBase<NetworkManager2>;
 	public:
 		typedef void(*MajorFunction)(        // this has to handle the networking requests being both capable of reading and sending requests
-			NetworkManager2& NetworkDevice,  // a pointer to the NetWorkIoController responsible of said request packet
-			NwRequestPacket& NetworkRequest, // a pointer to a network request packet describing the current request
+			NetworkManager2* NetworkDevice,  // a pointer to the NetWorkIoController responsible of said request packet
+			NwRequestPacket& NetworkRequest, // a reference to a network request packet describing the current request
 			void*            UserContext     // A pointer to caller defined data thats forwarded to the callback in every call, could be the GameManager class or whatever
 			);
 
@@ -134,7 +134,7 @@ export namespace Network::Client {
 					NwRequestPacket RequestDispatchPacket{};
 					RequestDispatchPacket.IoControlCode = NwRequestPacket::SOCKET_DISCONNECTED;
 					RequestDispatchPacket.IoRequestStatus = NwRequestPacket::STATUS_REQUEST_NOT_HANDLED;
-					NetworkServiceRoutine(*this,
+					NetworkServiceRoutine(this,
 						RequestDispatchPacket,
 						UserContext);
 					if (RequestDispatchPacket.IoRequestStatus < 0)
@@ -153,7 +153,7 @@ export namespace Network::Client {
 					RequestDispatchPacket.IoControlCode = NwRequestPacket::INCOMING_PACKET;
 					RequestDispatchPacket.IoControlPacketData = ShipPacket;
 					RequestDispatchPacket.IoRequestStatus = NwRequestPacket::STATUS_REQUEST_NOT_HANDLED;
-					NetworkServiceRoutine(*this,
+					NetworkServiceRoutine(this,
 						RequestDispatchPacket,
 						UserContext);
 					if (RequestDispatchPacket.IoRequestStatus < 0)

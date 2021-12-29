@@ -193,7 +193,7 @@ export namespace Network {
 		uint8_t SizeOfThisStruct = sizeof(*this); // Has to specify the size of the this struct including the flexible array member content,
 												  // this is used for transmitting data, if this field is not set properly the send controls will probably fail
 
-		enum ShipControlCommandName : int8_t {
+		enum ShipControlCommandName {
 			// The following is only send by the client to server
 			NO_COMMAND_CLIENT = 0, // Should be unused (reserved for @Lima)
 			SET_SHIP_LOC_CLIENT,   // Send only during setup, specifies where to place a ship
@@ -218,9 +218,9 @@ export namespace Network {
 		union {
 			// SET_SHIP_LOC_CLIENT
 			struct {
-				ShipClass       ShipType;
+				ShipClass      ShipType;
 				PointComponent ShipsPosition;
-				ShipRotation    Rotation;
+				ShipRotation   Rotation;
 			} SetShipLocation;
 
 			// SHOOT_CELL_CLIENT
