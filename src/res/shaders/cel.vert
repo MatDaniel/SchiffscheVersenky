@@ -30,7 +30,10 @@ void main()
 {
     TexCoords = aTexCoord;
     ColTilt = aColTilt;
-    Normal = aNormal;
+    Normal = normalize(vec3(vec4(aNormal, 0.0) * inverse(aModlMtx))); // Bad parctise to calculate
+                                                                      // the model matrix inverse in the shader,
+                                                                      // should be instead calculated by the
+                                                                      // cpu and supplied to the shader.
     WorldPos = vec3(aModlMtx * vec4(aPos, 1.0));
     
     gl_Position = scene.projMtx * scene.viewMtx * vec4(WorldPos, 1.0);

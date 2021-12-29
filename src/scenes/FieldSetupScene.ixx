@@ -33,7 +33,7 @@ public:
 	void OnInit() override
 	{
 
-		auto& manager = GameManager2::CreateObject(PointComponent{4,4}, ShipCount{2,2,2,2,2});
+		auto& manager = GameManager2::CreateObject(PointComponent{12,12}, ShipCount{2,2,2,2,2});
 		gmGameField = manager.TryAllocatePlayerWithId(1);
 		gameField = make_unique<GameField>(manager, gmGameField);
 
@@ -68,7 +68,7 @@ public:
 		glClearColor(0.8F, 0.2F, 0.1F, 1.0F);
 		glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
-		ImGui::SetNextWindowPos(ImVec2 { 600, 10 });
+		ImGui::SetNextWindowPos(ImVec2 { 600, 10 }, ImGuiCond_Once, ImVec2 { 0, 0 });
 		ImGui::Begin("GameField Debug", nullptr, ImGuiWindowFlags_NoSavedSettings);
 		ImGui::Combo("Ship Type", &selectedType, [](void* data, int idx, const char** out) -> bool {
 			*out = ShipInfos[idx].name;

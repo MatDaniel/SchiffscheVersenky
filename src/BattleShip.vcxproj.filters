@@ -135,5 +135,17 @@
     <None Include="res\models\ship_destroyer.obj">
       <Filter>Resource Files\Models</Filter>
     </None>
+    <None Include="res\models\ship_submarine.obj">
+      <Filter>Resource Files\Models</Filter>
+    </None>
+    <None Include="res\models\ship_cruiser.obj">
+      <Filter>Resource Files\Models</Filter>
+    </None>
+    <None Include="res\models\ship_carrier.obj">
+      <Filter>Resource Files\Models</Filter>
+    </None>
+    <None Include="res\models\ship_battleship.obj">
+      <Filter>Resource Files\Models</Filter>
+    </None>
   </ItemGroup>
 </Project>
