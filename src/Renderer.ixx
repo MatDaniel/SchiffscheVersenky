@@ -213,7 +213,7 @@ public:
 		m_currentFrameBuf = (m_currentFrameBuf + 1) % 2;
 
 		// Bind SceneUBO
-		m_currentUbo.time = Timings::time();
+		m_currentUbo.time = Timings::TimeSinceStart();
 		*m_uboBufs[m_currentFrameBuf].ptr() = m_currentUbo;
 		glBindBufferBase(GL_UNIFORM_BUFFER, 0, m_uboBufs[m_currentFrameBuf].id());
 

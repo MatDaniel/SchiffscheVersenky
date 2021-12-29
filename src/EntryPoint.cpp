@@ -21,7 +21,7 @@ import Draw.Engine;
 import Draw.Resources;
 import Draw.Scene;
 import Draw.DearImGUI;
-import Scenes.FieldSetup;
+import Scenes.Menu;
 
 // Layer manager logging object
 SpdLogger LayerLog;
@@ -504,7 +504,7 @@ int main(
 				Resources::Init();
 
 				// Set entry scene
-				Scene::Load(std::make_unique<FieldSetupScene>());
+				Scene::Load(std::make_unique<MenuScene>());
 
 				// Run
 				int code = Engine::Run();

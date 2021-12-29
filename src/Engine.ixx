@@ -2,8 +2,8 @@ module;
 
 #include <glad/glad.h>
 #include <GLFW/glfw3.h>
+#include <imgui.h>
 #include <spdlog/spdlog.h>
-#include <spdlog/sinks/stdout_color_sinks.h>
 
 #include <optional>
 #include <memory>
@@ -17,6 +17,8 @@ import Draw.Window;
 import Draw.Timings;
 import Draw.DearImGUI;
 
+using namespace std;
+
 // Logger
 export SpdLogger EngineLog;
 
@@ -24,7 +26,7 @@ namespace
 {
 
 	// Private Properties
-	std::optional<int> s_exitCode;
+	std::optional<int> s_ExitCode;
 
 #ifndef NDEBUG
 
@@ -116,17 +118,16 @@ export namespace Engine
 	{
 
 		// The rendering loop. Executes until the window is closed or a system asks for it.
-		while (!Window::IsClosed() && !s_exitCode.has_value())
+		while (!Window::IsClosed() && !s_ExitCode.has_value())
 		{
 
 			// Begin Frame
 			Window::BeginFrame();
 			DearImGUI::BeginFrame();
-			Timings::update();
+			Timings::Update();
 			Scene::Next(); // Loads next scene if available
 			
 			// Execute draw
-			DearImGUI::DrawFrame();
             Scene::Current()->OnDraw();
 
 			// End Frame
@@ -138,13 +139,13 @@ export namespace Engine
 		SPDLOG_LOGGER_INFO(EngineLog, "Initialized opengl function pointers");
 
 		// Returns the exit code.
-		return s_exitCode.value_or(EXIT_SUCCESS);
+		return s_ExitCode.value_or(EXIT_SUCCESS);
 
 	}
 
-    void Exit(int code) noexcept
+    void Exit(int code = 0) noexcept
 	{
-		s_exitCode = code;
+		s_ExitCode = code;
 	}
 
 }

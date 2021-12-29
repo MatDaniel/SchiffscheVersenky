@@ -32,10 +32,10 @@ constexpr glm::vec3 UpNormal = glm::vec3(0.0F, 1.0F, 0.0F);
 
 static Model::IndexInfo FieldSqInfo = Model::IndexInfo(0, 6);
 static Model::IndexInfo BackgroundInfo = Model::IndexInfo(6, 12);
-static glm::vec4 BorderColor(1.0F, 1.0F, 1.0F, 1.0F);
-static glm::vec4 OceanColor(0.18F, 0.33F, 1.0F, 1.0F);
-static glm::vec4 CollisionColor(0.75F, 0.1F, 0.1F, 1.0F);
-static glm::vec4 IndirectCollisionColor(0.93F, 0.93F, 0.115F, 1.0F);
+static vec4 BorderColor(1.0F, 1.0F, 1.0F, 1.0F);
+static vec4 OceanColor(0.18F, 0.33F, 1.0F, 1.0F);
+static vec4 CollisionColor(0.75F, 0.1F, 0.1F, 1.0F);
+static vec4 IndirectCollisionColor(0.93F, 0.93F, 0.115F, 1.0F);
 
 uint32_t vert(std::vector<Vertex>& vertices, std::unordered_map<Vertex, uint32_t>& uniqueCache,
 	const Vertex& vert)

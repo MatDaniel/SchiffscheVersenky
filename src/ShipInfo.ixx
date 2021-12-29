@@ -89,8 +89,6 @@ export namespace Draw
 		ShipDirection direction;
 	};
 
-	
-
 }
 
 // -- Casts between Network and Draw modules --

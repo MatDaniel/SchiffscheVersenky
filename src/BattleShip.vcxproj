@@ -101,6 +101,7 @@
     <ClCompile Include="DearImGUI.ixx" />
     <ClCompile Include="GameManagment.ixx" />
     <ClCompile Include="LimaBase.ixx" />
+    <ClCompile Include="MenuScene.ixx" />
     <ClCompile Include="NetworkClientControl.ixx" />
     <ClCompile Include="NetworkServerControl.ixx" />
     <ClCompile Include="scenes\FieldSetupScene.ixx" />

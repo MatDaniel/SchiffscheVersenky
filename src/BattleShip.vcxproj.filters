@@ -99,6 +99,9 @@
     <ClCompile Include="LimaBase.ixx">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="MenuScene.ixx">
+      <Filter>Source Files\Scenes</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="resource.h">

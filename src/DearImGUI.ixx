@@ -49,13 +49,6 @@ export namespace DearImGUI
 		ImGui::NewFrame();
 	}
 
-	void DrawFrame()
-	{
-		ImGui::Begin("Performance Monitor", NULL, ImGuiWindowFlags_NoSavedSettings);
-		ImGui::Text("%.3f ms/frame (%.1f FPS)", 1000.0f / ImGui::GetIO().Framerate, ImGui::GetIO().Framerate);
-		ImGui::End();
-	}
-
 	void EndFrame()
 	{
 		ImGui::Render();

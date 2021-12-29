@@ -41,7 +41,7 @@ public:
     /**
      * @brief Called at initialization.
      */
-    virtual void OnInit() = 0;
+    virtual void OnInit() { };
 
     /**
      * @brief Is called every frame.

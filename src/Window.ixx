@@ -4,7 +4,6 @@ module;
 #include <GLFW/glfw3.h>
 #include <glm/vec2.hpp>
 #include <spdlog/spdlog.h>
-#include <spdlog/sinks/stdout_color_sinks.h>
 
 #include <memory>
 
@@ -20,9 +19,9 @@ namespace
 {
 
 	// Properties
-	static GLFWwindow* s_handle{ nullptr };
-	static glm::uvec2 s_windowSize{ 960, 540 };
-	static glm::vec2 s_cursorPos{ 960, 540 };
+	static GLFWwindow* s_Handle{ nullptr };
+	static glm::uvec2 s_WindowSize{ 960, 540 };
+	static glm::vec2 s_CursorPos{ 960, 540 };
 
 #ifndef NDEBUG
 
@@ -48,8 +47,8 @@ namespace
 	{
 
 		// Save window size
-		s_windowSize.x = width;
-		s_windowSize.y = height;
+		s_WindowSize.x = width;
+		s_WindowSize.y = height;
 
 		// Set viewport to the size of the actual window
 		glViewport(0, 0, width, height);
@@ -72,7 +71,7 @@ namespace
 	{
 
 		// Save cursor location
-		s_cursorPos = glm::vec2(xpos, ypos);
+		s_CursorPos = glm::vec2(xpos, ypos);
 
 		// Process callback
 		auto* scene = Scene::Current();
@@ -105,9 +104,9 @@ export namespace Window
 	namespace Properties
 	{
 
-		auto& Handle = s_handle;
-		const auto& WindowSize = s_windowSize;
-		const auto& CursorPos = s_cursorPos;
+		auto& Handle = s_Handle;
+		const auto& WindowSize = s_WindowSize;
+		const auto& CursorPos = s_CursorPos;
 
 	}
 
@@ -131,8 +130,8 @@ export namespace Window
 #endif
 
 		// Creates a window with the title "SchiffscheVersenky"
-		s_handle = glfwCreateWindow(s_windowSize.x, s_windowSize.y, "SchiffscheVersenky", NULL, NULL);
-		if (s_handle == nullptr)
+		s_Handle = glfwCreateWindow(s_WindowSize.x, s_WindowSize.y, "SchiffscheVersenky", NULL, NULL);
+		if (s_Handle == nullptr)
 		{
 			SPDLOG_LOGGER_CRITICAL(WindowLog, "Failed to initialize window!");
 			glfwTerminate();
@@ -140,14 +139,14 @@ export namespace Window
 		}
 
 		// Configures the created window
-		glfwMakeContextCurrent(s_handle);
+		glfwMakeContextCurrent(s_Handle);
 		glfwSwapInterval(1); // VSync
 
 		// Callbacks
-		glfwSetCursorPosCallback(s_handle, CallbackCursorPos);
-		glfwSetFramebufferSizeCallback(s_handle, CallbackFramebufferSize);
-		glfwSetKeyCallback(s_handle, CallbackKeyboardKey);
-		glfwSetMouseButtonCallback(s_handle, CallbackMouseButton);
+		glfwSetCursorPosCallback(s_Handle, CallbackCursorPos);
+		glfwSetFramebufferSizeCallback(s_Handle, CallbackFramebufferSize);
+		glfwSetKeyCallback(s_Handle, CallbackKeyboardKey);
+		glfwSetMouseButtonCallback(s_Handle, CallbackMouseButton);
 
 		// Debug
 		SPDLOG_LOGGER_INFO(WindowLog, "Initialized window");
@@ -159,21 +158,21 @@ export namespace Window
 
 	void Close()
 	{
-		glfwSetWindowShouldClose(s_handle, 1);
+		glfwSetWindowShouldClose(s_Handle, 1);
 	}
 
 	void CleanUp()
 	{
-		if (s_handle)
+		if (s_Handle)
 		{
-			glfwDestroyWindow(s_handle);
+			glfwDestroyWindow(s_Handle);
 			glfwTerminate();
 		}
 	}
 
 	bool IsClosed()
 	{
-		return glfwWindowShouldClose(s_handle);
+		return glfwWindowShouldClose(s_Handle);
 	}
 
 	void BeginFrame()
@@ -184,7 +183,12 @@ export namespace Window
 
 	void EndFrame()
 	{
-		glfwSwapBuffers(s_handle);
+		glfwSwapBuffers(s_Handle);
+	}
+
+	void SetTitle(const char* title)
+	{
+		glfwSetWindowTitle(s_Handle, title);
 	}
 
 }
