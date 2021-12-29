@@ -20,10 +20,96 @@ export SpdLogger GameLog;
 export namespace GameManagment {
 	using namespace Network;
 
+	// The primary interface, this gives full control of the game and forwards other functionality
+	class GmPlayerField;
+	class GameManager2 final
+		: public MagicInstanceManagerBase<GameManager2> {
+		friend class MagicInstanceManagerBase<GameManager2>;
+	public:
+		enum GameManagerStatus {
+			STATUS_INVALID = -2000,
+			STATUS_PLAYERS_NOT_READY,
+			STATUS_NOT_ALL_PLACED,
+
+			STATUS_OK = 0,
+			STATUS_SWITCHED_GAME_PHASE,
+		};
+		enum GamePhase {
+			INVALID_PHASE = -1,
+			SETUP_PHASE,
+			GAME_PHASE,
+			GAMEEND_PHASE
+		};
+
+		~GameManager2() {
+			TRACE_FUNTION_PROTO;
+
+			SPDLOG_LOGGER_INFO(GameLog, "game manager destroyed, cleaning up assocs");
+		}
+
+		GmPlayerField* TryAllocatePlayerWithId( // Tries to allocate a player, and returns it,
+												// if there are too many players returns nullptr,
+												// throws runtime error if emplace fails (should be impossible)
+			SOCKET SocketAsId
+		);
+
+		GameManagerStatus CheckReadyAndStartGame(); // Checks if everything is valid and the game has been properly setup
+
+		enum GetPlayerFieldForOperationByType {
+			PLAYER_INVALID = 0, // An invalid control type, may be adapted
+			GET_PLAYER_BY_ID,   // Retrieves player field by specified Id
+			DOES_ID_OWN_PLAYER, // Same as GET_PLAYER_BY_ID, just expressive for usecase
+			PLAYER_BY_TURN,     // Gets the player's field who has his current turn
+			GET_MY_PLAYER,      // Retrieves the clients own players field
+
+			GET_OPPONENT_PLAYER // Searches for the opponent of the specified players id
+								// If the specified id is INVALID_SOCKET gives the opponent
+								// of the clients player field
+		};
+		GmPlayerField* GetPlayerFieldByOperation(
+			GetPlayerFieldForOperationByType ControlType,
+			SOCKET                           SocketAsId
+		);
+		SOCKET GetSocketAsIdForPlayerField(
+			const GmPlayerField& PlayerField
+		) const;
+
+		uint8_t GetCurrentPlayerCount() {
+			TRACE_FUNTION_PROTO; return PlayerFieldData.size();
+		}
+		GamePhase GetCurrentGamePhase() {
+			TRACE_FUNTION_PROTO; return CurrentGameState;
+		}
+
+		// Game parameters, used for allocating players
+		const PointComponent InternalFieldDimensions;
+		const ShipCount      InternalShipCount;
+
+	private:
+		GameManager2(
+			      PointComponent FieldSizes,
+			const ShipCount&     NumberOfShips
+		) 
+			: InternalFieldDimensions(FieldSizes),
+			  InternalShipCount(NumberOfShips) {
+			TRACE_FUNTION_PROTO;
+
+			SPDLOG_LOGGER_INFO(GameLog, "GameManager instance created {}",
+				(void*)this);
+		}
+
+		map<SOCKET, GmPlayerField> PlayerFieldData;
+
+		SOCKET    MyPlayerId = INVALID_SOCKET;
+		SOCKET    CurrentSelectedPlayer = INVALID_SOCKET;
+		uint8_t   NumberOfReadyPlayers = 0;
+		GamePhase CurrentGameState = SETUP_PHASE;
+	};
+
 	// Primary game state referring to a unit field, each player is associated by handle (here by socket handle as id),
 	// this offers the primary interface to interact with a players current game state
 	class GmPlayerField {
-		friend class GameManager;
+		friend GameManager2;
 	public:
 		enum PlayFieldStatus {
 			STATUS_INVALID_PLACEMENT = -2000,
@@ -40,25 +126,22 @@ export namespace GameManagment {
 		using ProbeStatusList = span<StatusResponseT>;
 
 		GmPlayerField(
-			      PointComponent FieldSizes,
-			const ShipCount&     NumberOfShips
-		)
-			: FieldDimensions(FieldSizes),
-			  NumberOfShipsPerType(NumberOfShips) {
+			const GameManager2* ManagerDevice
+		) {
 			TRACE_FUNTION_PROTO;
 
-			auto NumberOfCells = FieldDimensions.XComponent * FieldDimensions.YComponent;
+			auto NumberOfCells = ManagerDevice->InternalFieldDimensions.XComponent *
+				ManagerDevice->InternalFieldDimensions.YComponent;
 			FieldCellStates = make_unique<CellState[]>(NumberOfCells);
 			memset(FieldCellStates.get(),
 				CELL_IS_EMPTY,
 				NumberOfCells);
 			SPDLOG_LOGGER_INFO(GameLog, "Allocated and initialized internal gamefield lookup with parameters: {{{}:{}}}",
-				FieldDimensions.XComponent, FieldDimensions.YComponent);
+				ManagerDevice->InternalFieldDimensions.XComponent, ManagerDevice->InternalFieldDimensions.YComponent);
 		}
 		~GmPlayerField() {
-			TRACE_FUNTION_PROTO;
-
-			SPDLOG_LOGGER_INFO(GameLog, "Playerfield [{}:{}] destroyed, cleaning up state",
+			TRACE_FUNTION_PROTO; SPDLOG_LOGGER_INFO(GameLog,
+				"Playerfield [{}:{}] destroyed, cleaning up state",
 				(void*)this, (void*)FieldCellStates.get());
 		}
 
@@ -80,20 +163,21 @@ export namespace GameManagment {
 			SPDLOG_LOGGER_DEBUG(GameLog, "Lookup cache invalid, rebuilding...");
 
 			// Walk OccupationTable and check if slot for specific ship type is available
+			auto& ManagerDevice = GameManager2::GetInstance();
 			for (auto i = 0; auto& ShipEntry : FieldShipStates)
 				if (ShipEntry.ShipType == TypeOfShip)
-					if (++i >= NumberOfShipsPerType.ShipCounts[TypeOfShip]) {
+					if (++i >= ManagerDevice.InternalShipCount.ShipCounts[TypeOfShip]) {
 
 						InternalProbeListCached.emplace_back(StatusResponseT{ {}, STATUS_NOT_ENOUGH_SLOTS });
-						InternalProbeListCached.SaveProbeState(ShipCoordinates,
+						InternalProbeListCached.PushAndStoreProbeState(ShipCoordinates,
 							TypeOfShip,
 							ShipOrientation);
 						SPDLOG_LOGGER_ERROR(GameLog, "Conflicting ship category, all ships of type already in use");
 						return InternalProbeListCached;
 					}
 
-
 			// Check if the ship even fits within the field at its cords
+			auto& FieldDimensions = ManagerDevice.InternalFieldDimensions;
 			auto ShipEndPosition = CalculateCordinatesOfPartByDistanceWithShip(
 				ShipCoordinates, ShipOrientation,
 				ShipLengthPerType[TypeOfShip] - 1);
@@ -108,7 +192,7 @@ export namespace GameManagment {
 				SPDLOG_LOGGER_WARN(GameLog, "{{{}:{}}} and {{{}:{}}} may not be within allocated field",
 					ShipCoordinates.XComponent, ShipCoordinates.YComponent,
 					ShipEndPosition.XComponent, ShipEndPosition.YComponent);
-				InternalProbeListCached.SaveProbeState(ShipCoordinates,
+				InternalProbeListCached.PushAndStoreProbeState(ShipCoordinates,
 					TypeOfShip,
 					ShipOrientation);
 				return InternalProbeListCached;
@@ -116,7 +200,6 @@ export namespace GameManagment {
 
 			// Validate ship placement, check for collisions and illegal positioning
 			// This loop iterates through all cell positions of ship parts,
-			vector<StatusResponseT> PrivateCollisionCommitList;
 			for (auto i = 0; i < ShipLengthPerType[TypeOfShip]; ++i) {
 
 				// IteratorPosition is always valid as its within the field and has been validated previously
@@ -137,7 +220,7 @@ export namespace GameManagment {
 							continue;
 
 						// Lookup location and apply test, construct collision list from there
-						auto CellstateOfLookup = GetCellReferenceByCoordinates(LookupLocation);
+						auto CellstateOfLookup = pGetCellStateByCoordinates(LookupLocation);
 						if (CellstateOfLookup & PROBE_CELL_USED) {
 
 							// Assume which type of collision we are dealing with, this may not be final
@@ -146,7 +229,7 @@ export namespace GameManagment {
 
 							// Check if location has already been reported or updated to direct if falsely reported as indirect
 							bool IsAlreadyReported = false;
-							for (auto& [ReportedLocation, StatusMessage] : PrivateCollisionCommitList)
+							for (auto& [ReportedLocation, StatusMessage] : InternalProbeListCached.GetCurrentCommits())
 								if (ReportedLocation == LookupLocation) {
 									if (ReportedLocation == IteratorPosition &&
 										StatusMessage == STATUS_INDIRECT_COLLIDE) {
@@ -159,7 +242,7 @@ export namespace GameManagment {
 									IsAlreadyReported = true; break;
 								}
 							if (!IsAlreadyReported)
-								PrivateCollisionCommitList.emplace_back(StatusResponseT{ LookupLocation, TypeOfCollision }),
+								InternalProbeListCached.emplace_back(StatusResponseT{ LookupLocation, TypeOfCollision }),
 								SPDLOG_LOGGER_WARN(GameLog, "Reported {} at {{{}:{}}}",
 									LookupLocation == IteratorPosition ? "collision" : "touching",
 									LookupLocation.XComponent, LookupLocation.YComponent);
@@ -167,10 +250,7 @@ export namespace GameManagment {
 					}
 			}
 
-			// Merge Collision list into status list and push to cache
-			InternalProbeListCached.insert(InternalProbeListCached.end(),
-				PrivateCollisionCommitList.begin(), PrivateCollisionCommitList.end());
-			InternalProbeListCached.SaveProbeState(ShipCoordinates,
+			InternalProbeListCached.PushAndStoreProbeState(ShipCoordinates,
 				TypeOfShip,
 				ShipOrientation);
 			return InternalProbeListCached;
@@ -190,7 +270,7 @@ export namespace GameManagment {
 				// This loop iterates through all cell positions of ship parts and writes the state to the grid
 				auto IteratorPosition = CalculateCordinatesOfPartByDistanceWithShip(
 					ShipCoordinates, ShipOrientation, i);
-				GetCellReferenceByCoordinates(IteratorPosition) = CELL_IS_IN_USE;
+				pGetCellStateByCoordinates(IteratorPosition) = CELL_IS_IN_USE;
 			}
 
 			// Finally add the ship to our list, and invalidate our lookup cache
@@ -203,7 +283,7 @@ export namespace GameManagment {
 			// We must also now invalidate the the probe cache as the field state has changed
 			// probing the same location as previously where now is a ship could elsewise 
 			// lead to collisions being missed
-			InternalProbeListCached.ProbeInvalidate();
+			InternalProbeListCached.InvalidateCache();
 			SPDLOG_LOGGER_INFO(GameLog, "Registered ship in list at location {{{}:{}}}",
 				ShipCoordinates.XComponent, ShipCoordinates.YComponent);
 		}
@@ -230,43 +310,14 @@ export namespace GameManagment {
 			return STATUS_SHIP_PLACED;
 		}
 
-		ShipState* GetShipEntryForCordinate( // Searches the shipstate list for an entry that contains a ship colliding with said coords
-			PointComponent Cordinates
-		) {
-			TRACE_FUNTION_PROTO;
-
-			// Enumerate all current valid ships and test all calculated cords of their parts against requested cords
-			for (auto& ShipEntry : FieldShipStates) {
-
-				// Iterate over all parts of the the ShipEntry
-				for (auto i = 0; i < ShipLengthPerType[ShipEntry.ShipType]; ++i) {
-
-					// Calculate part location and check against given coordinates
-					auto IteratorPosition = CalculateCordinatesOfPartByDistanceWithShip(
-						ShipEntry, i);
-					if (IteratorPosition.XComponent == Cordinates.XComponent &&
-						IteratorPosition.YComponent == Cordinates.YComponent)
-						return SPDLOG_LOGGER_INFO(GameLog, "Found ship at {{{}:{}}}, for {{{}:{}}}",
-							ShipEntry.Cordinates.XComponent, ShipEntry.Cordinates.YComponent,
-							Cordinates.XComponent, Cordinates.YComponent),
-							&ShipEntry;
-				}
-			}
-
-			SPDLOG_LOGGER_WARN(GameLog, "Failed to find an associated ship for location {{{}:{}}}",
-				Cordinates.XComponent, Cordinates.YComponent);
-			return nullptr;
-		}
-
 		CellState StrikeCellAndUpdateShipList( // Tries to "shoot" cell and applies handling,
 		                                       // This will update the grid array and the shipstate list
 			PointComponent TargetCoordinates
 		) {
-			using Network::CellState;
 			TRACE_FUNTION_PROTO;
 
 			// Test and shoot cell in grid
-			auto& LocalCell = GetCellReferenceByCoordinates(TargetCoordinates);
+			auto& LocalCell = pGetCellStateByCoordinates(TargetCoordinates);
 			if (LocalCell & PROBE_CELL_WAS_SHOT)
 				return SPDLOG_LOGGER_ERROR(GameLog, "Location {{{}:{}}} was struck multiple times",
 					TargetCoordinates.XComponent, TargetCoordinates.YComponent),
@@ -277,13 +328,13 @@ export namespace GameManagment {
 			if (!(LocalCell & PROBE_CELL_USED))
 				return LocalCell;
 
-			auto ShipEntry = GetShipEntryForCordinate(TargetCoordinates);
+			auto ShipEntry = pGetShipEntryForCordinate(TargetCoordinates);
 			for (auto i = 0; i < ShipLengthPerType[ShipEntry->ShipType]; ++i) {
 
 				// Enumerate all cells and test for non destroyed cell
 				auto IteratorPosition = CalculateCordinatesOfPartByDistanceWithShip(
 					*ShipEntry, i);
-				if ((GetCellReferenceByCoordinates(IteratorPosition) & MASK_FILTER_STATE_BITS) != CELL_SHIP_WAS_HIT)
+				if ((pGetCellStateByCoordinates(IteratorPosition) & MASK_FILTER_STATE_BITS) != CELL_SHIP_WAS_HIT)
 					return SPDLOG_LOGGER_INFO(GameLog, "Ship at {{{}:{}}} was hit in {{{}:{}}}",
 						ShipEntry->Cordinates.XComponent, ShipEntry->Cordinates.YComponent,
 						TargetCoordinates.XComponent, TargetCoordinates.YComponent),
@@ -296,33 +347,26 @@ export namespace GameManagment {
 		}
 
 
-
-		// TODO: Deuglify this class this is a mess but ehh....
+		// Helper functions for externals
 		CellState GetCellStateByCoordinates(
-			const PointComponent Cordinates
-		) const {
-			TRACE_FUNTION_PROTO; return GetCellReferenceByCoordinates(Cordinates);
+			PointComponent Cordinates
+		) {
+			TRACE_FUNTION_PROTO; return pGetCellStateByCoordinates(Cordinates);
 		}
-
-
+		const ShipState* GetShipEntryForCordinate(
+			PointComponent Cordinates
+		) {
+			TRACE_FUNTION_PROTO; return pGetShipEntryForCordinate(Cordinates);
+		}
 		span<const ShipState> GetShipStateList() const {
 			TRACE_FUNTION_PROTO; return FieldShipStates;
 		}
-
-
-		// Quick Utility Helpers
 		uint8_t GetNumberOfShipsPlaced() const {
 			TRACE_FUNTION_PROTO; return FieldShipStates.size();
 		}
 		bool operator==(const GmPlayerField& Other) const {
 			TRACE_FUNTION_PROTO; return this == &Other;
 		}
-
-
-
-		// Initilization constants
-		const PointComponent    FieldDimensions;
-		const ShipCount         NumberOfShipsPerType;
 
 	private:
 		class ProbeListCache 
@@ -354,16 +398,7 @@ export namespace GameManagment {
 					&& ShipType == LastShipType
 					&& ShipOrientation == LastShipOrientation;
 			}
-			void ProbeInvalidate() {
-				TRACE_FUNTION_PROTO;
-				
-				SizeOfListSinceLastPush = 0;
-				clear();
-				ValidationState = CACHE_INVALID;
-
-				SPDLOG_LOGGER_DEBUG(GameLog, "Invalidated probe cache");
-			}
-			void SaveProbeState(
+			void PushAndStoreProbeState(
 				PointComponent ShipLocation,
 				ShipClass      ShipType,
 				ShipRotation   ShipOrientation
@@ -384,11 +419,22 @@ export namespace GameManagment {
 				SPDLOG_LOGGER_DEBUG(GameLog, "Commited {} entries to current probe cache",
 					size());
 			}
+
+			void InvalidateCache() {
+				TRACE_FUNTION_PROTO;
+				
+				SizeOfListSinceLastPush = 0;
+				clear();
+				ValidationState = CACHE_INVALID;
+
+				SPDLOG_LOGGER_DEBUG(GameLog, "Invalidated probe cache");
+			}
+
+			span<StatusResponseT> GetCurrentCommits() {
+				TRACE_FUNTION_PROTO; return { begin() + SizeOfListSinceLastPush, end() };
+			}
 			size_t GetNumberOfCommits() const {
 				TRACE_FUNTION_PROTO; return size() - SizeOfListSinceLastPush;
-			}
-			span<StatusResponseT> GetCurrentCommits() {
-				TRACE_FUNTION_PROTO; return { begin() + GetNumberOfCommits(), end() };
 			}
 
 		private:
@@ -396,7 +442,37 @@ export namespace GameManagment {
 			ShipClass      LastShipType{};
 			ShipRotation   LastShipOrientation{};
 			size_t         SizeOfListSinceLastPush{};
-		} InternalProbeListCached;
+		} 
+		InternalProbeListCached;
+
+
+		ShipState* pGetShipEntryForCordinate(
+			PointComponent Cordinates
+		) {
+			TRACE_FUNTION_PROTO;
+
+			// Enumerate all current valid ships and test all calculated cords of their parts against requested cords
+			for (auto& ShipEntry : FieldShipStates) {
+
+				// Iterate over all parts of the the ShipEntry
+				for (auto i = 0; i < ShipLengthPerType[ShipEntry.ShipType]; ++i) {
+
+					// Calculate part location and check against given coordinates
+					auto IteratorPosition = CalculateCordinatesOfPartByDistanceWithShip(
+						ShipEntry, i);
+					if (IteratorPosition.XComponent == Cordinates.XComponent &&
+						IteratorPosition.YComponent == Cordinates.YComponent)
+						return SPDLOG_LOGGER_INFO(GameLog, "Found ship at {{{}:{}}}, for {{{}:{}}}",
+							ShipEntry.Cordinates.XComponent, ShipEntry.Cordinates.YComponent,
+							Cordinates.XComponent, Cordinates.YComponent),
+							&ShipEntry;
+				}
+			}
+
+			SPDLOG_LOGGER_WARN(GameLog, "Failed to find an associated ship for location {{{}:{}}}",
+				Cordinates.XComponent, Cordinates.YComponent);
+			return nullptr;
+		}
 
 		PointComponent CalculateCordinatesOfPartByDistanceWithShip(
 			PointComponent ShipLocation,
@@ -416,6 +492,7 @@ export namespace GameManagment {
 				return PointComponent{ (uint8_t)(ShipLocation.XComponent + DistanceToWalk), ShipLocation.YComponent };
 			}
 		}
+		
 		PointComponent CalculateCordinatesOfPartByDistanceWithShip(
 			const ShipState& BaseShipData,
 			      uint8_t    DistanceToWalk
@@ -427,17 +504,117 @@ export namespace GameManagment {
 				DistanceToWalk);
 		}
 
-		CellState& GetCellReferenceByCoordinates(
-			const PointComponent Cordinates
-		) const {
-			TRACE_FUNTION_PROTO;
-
-			return FieldCellStates[Cordinates.YComponent * FieldDimensions.XComponent + Cordinates.XComponent];
+		CellState& pGetCellStateByCoordinates(
+			PointComponent Cordinates
+		) {
+			TRACE_FUNTION_PROTO; return FieldCellStates[Cordinates.YComponent * 
+				GameManager2::GetInstance().InternalFieldDimensions.XComponent + Cordinates.XComponent];
 		}
 
 		unique_ptr<CellState[]> FieldCellStates;
 		vector<ShipState>       FieldShipStates;
 	};
+
+#pragma region GameManager2 fragment implementations dependent on GmPlayerField
+	GmPlayerField* GameManager2::TryAllocatePlayerWithId(
+		SOCKET SocketAsId
+	) {
+		TRACE_FUNTION_PROTO;
+
+		// Check if we have enough slots to allocate players in
+		if (PlayerFieldData.size() >= 2)
+			return SPDLOG_LOGGER_WARN(GameLog, "Cannot allocate more Players, there are already 2 present"), nullptr;
+
+		// Allocate and insert player into player field database
+		auto [FieldIterator, Inserted] = PlayerFieldData.try_emplace(
+			SocketAsId, this);
+		if (!Inserted)
+			throw (SPDLOG_LOGGER_ERROR(GameLog, "failed to insert player field into controller"),
+				runtime_error("failed to insert player field into controller"));
+
+		// Check if the allocated player is our own (this is for client side) and return 
+		if (PlayerFieldData.size() == 1)
+			MyPlayerId = SocketAsId;
+		SPDLOG_LOGGER_INFO(GameLog, "Allocated player for socket [{:04x}]",
+			SocketAsId);
+		return &FieldIterator->second;
+	}
+
+	GameManager2::GameManagerStatus
+		GameManager2::CheckReadyAndStartGame() {
+		TRACE_FUNTION_PROTO;
+
+		// Check if all players are ready to play
+		if (NumberOfReadyPlayers != 2)
+			return SPDLOG_LOGGER_WARN(GameLog, "Not all players are ready'd up"),
+			STATUS_PLAYERS_NOT_READY;
+
+		// Check if players have all their ships placed
+		for (const auto& [Key, PlayerFieldController] : PlayerFieldData)
+			if (InternalShipCount.GetTotalCount() <
+				PlayerFieldController.GetNumberOfShipsPlaced())
+				return SPDLOG_LOGGER_WARN(GameLog, "Not all ships of Player [{:04x}] have been placed",
+					Key), STATUS_NOT_ALL_PLACED;
+
+		// Switch game phase state and notify caller
+		CurrentGameState = GAME_PHASE;
+		SPDLOG_LOGGER_INFO(GameLog, "Game is setup, switched to game phase state");
+		return STATUS_SWITCHED_GAME_PHASE;
+	}
+
+	GmPlayerField* GameManager2::GetPlayerFieldByOperation(
+		GetPlayerFieldForOperationByType ControlType,
+		SOCKET                           SocketAsId
+	) {
+		TRACE_FUNTION_PROTO;
+
+		switch (ControlType) {
+		case PLAYER_INVALID:
+			SPDLOG_LOGGER_WARN(GameLog, "Check command PLAYER_INVALID");
+			break;
+
+		case DOES_ID_OWN_PLAYER:
+		case GET_PLAYER_BY_ID:
+			for (auto& [SocketHandle, PlayerField] : PlayerFieldData)
+				if (SocketHandle == SocketAsId)
+					return &PlayerField;
+			return nullptr;
+
+		case PLAYER_BY_TURN:
+			return GetPlayerFieldByOperation(GET_PLAYER_BY_ID,
+				CurrentSelectedPlayer);
+
+		case GET_MY_PLAYER:
+			return GetPlayerFieldByOperation(GET_PLAYER_BY_ID,
+				MyPlayerId);
+
+		case GET_OPPONENT_PLAYER:
+			if (SocketAsId == INVALID_SOCKET)
+				SocketAsId = MyPlayerId;
+			if (!GetPlayerFieldByOperation(DOES_ID_OWN_PLAYER,
+				SocketAsId))
+				return nullptr;
+			return PlayerFieldData.begin()->first == SocketAsId ?
+				&PlayerFieldData.begin()->second : &PlayerFieldData.end()->second;
+
+		default:
+			SPDLOG_LOGGER_ERROR(GameLog, "unsupplied handling encountered");
+		}
+
+		return nullptr;
+	}
+
+	SOCKET GameManager2::GetSocketAsIdForPlayerField(
+		const GmPlayerField& PlayerField
+	) const {
+		TRACE_FUNTION_PROTO;
+
+		for (const auto& [SocketAsId, InternalField] : PlayerFieldData)
+			if (InternalField == PlayerField)
+				return SocketAsId;
+		return INVALID_SOCKET;
+	}
+#pragma endregion
 
 	// GmPlayerField debug printer v2 legend / symbolic explanation:
 	// Prints the content of 1 or 2 fields reporting the state of the 2d matrix
@@ -475,30 +652,33 @@ export namespace GameManagment {
 				FieldFormat.append({ Printable, Property });
 		};
 
+		// Get Fielddimensions, the field itself inherits the values of the manager
+		auto& ManagerDevice = GameManager2::GetInstance();
+		auto& FieldDimensions = ManagerDevice.InternalFieldDimensions;
 		try {
-			for (auto i = 0; i < MyPlayerField_Left.FieldDimensions.XComponent; ++i)
+			for (auto i = 0; i < FieldDimensions.XComponent; ++i)
 				FieldFormat.append({ AlphapectiCordLookup[i], ' ' });
 			if (OpponentPlayer) {
 				FieldFormat.append("|    |");
-				for (auto i = 0; i < MyPlayerField_Left.FieldDimensions.XComponent; ++i)
+				for (auto i = 0; i < FieldDimensions.XComponent; ++i)
 					FieldFormat.append({ AlphapectiCordLookup[i], ' ' });
 			}
 
 			FieldFormat.append(fmt::format(!OpponentPlayer ? "|\n---+{0:-^{1}}+\n"
 				: "|\n---+{0:-^{1}}+ ---+{0:-^{1}}+\n",
-				"", MyPlayerField_Left.FieldDimensions.XComponent * 2));
+				"", FieldDimensions.XComponent * 2));
 
-			for (auto i = 0; i < MyPlayerField_Left.FieldDimensions.YComponent; ++i) {
+			for (auto i = 0; i < FieldDimensions.YComponent; ++i) {
 
 				FieldFormat.append(fmt::format("{:>2d} |", i));
-				for (auto j = 0; j < MyPlayerField_Left.FieldDimensions.XComponent; ++j)
+				for (auto j = 0; j < FieldDimensions.XComponent; ++j)
 					TransformCellstateToText(MyPlayerField_Left,
 						PointComponent{ (uint8_t)j, (uint8_t)i });
 
 				FieldFormat.append(!OpponentPlayer ? "|"
 					: fmt::format("| {:>2d} |", i));
 				if (OpponentPlayer) {
-					for (auto j = 0; j < MyPlayerField_Left.FieldDimensions.XComponent; ++j)
+					for (auto j = 0; j < FieldDimensions.XComponent; ++j)
 						TransformCellstateToText(*OpponentPlayer,
 							PointComponent{ (uint8_t)j, (uint8_t)i });
 
@@ -510,7 +690,7 @@ export namespace GameManagment {
 
 			FieldFormat.append(fmt::format(!OpponentPlayer ? "---+{0:-^{1}}+\n"
 				: "---+{0:-^{1}}+ ---+{0:-^{1}}+\n",
-				"", MyPlayerField_Left.FieldDimensions.XComponent * 2));
+				"", FieldDimensions.XComponent * 2));
 
 			SPDLOG_LOGGER_DEBUG(GameLog, FieldFormat);
 		}
@@ -520,192 +700,4 @@ export namespace GameManagment {
 				ExceptionInformation.what());
 		}
 	}
-
-
-
-	// Helper structures, TODO: move this into GameManger2
-	enum GamePhase {
-		INVALID_PHASE = -1,
-		SETUP_PHASE,
-		GAME_PHASE,
-		GAMEEND_PHASE
-	};
-
-
-
-	// The primary interface, this gives full control of the game and forwards other functionality
-	class GameManager2 final
-		: public MagicInstanceManagerBase<GameManager2> {
-		friend class MagicInstanceManagerBase<GameManager2>;
-	public:
-		enum GameManagerStatus {
-			STATUS_INVALID = -2000,
-			STATUS_PLAYERS_NOT_READY,
-			STATUS_NOT_ALL_PLACED,
-
-			STATUS_OK = 0,
-			STATUS_SWITCHED_GAME_PHASE,
-
-		};
-
-
-		~GameManager2() {
-			TRACE_FUNTION_PROTO;
-
-			SPDLOG_LOGGER_INFO(GameLog, "game manager destroyed, cleaning up assocs");
-		}
-
-		GmPlayerField* TryAllocatePlayerWithId( // Tries to allocate a player, and returns it,
-		                                        // if there are too many players returns nullptr,
-		                                        // throws runtime error if emplace fails (should be impossible)
-			SOCKET SocketAsId
-		) {
-			TRACE_FUNTION_PROTO;
-
-			// Check if we have enough slots to allocate players in
-			if (PlayerFieldData.size() >= 2)
-				return SPDLOG_LOGGER_WARN(GameLog, "Cannot allocate more Players, there are already 2 present"), nullptr;
-
-			// Allocate and insert player into player field database
-			auto [FieldIterator, Inserted] = PlayerFieldData.try_emplace(
-				SocketAsId,
-				InternalFieldDimensions,
-				InternalShipCount);
-			if (!Inserted)
-				throw (SPDLOG_LOGGER_ERROR(GameLog, "failed to insert player field into controller"),
-					runtime_error("failed to insert player field into controller"));
-
-			// Check if the allocated player is our own (this is for client side) and return 
-			if (PlayerFieldData.size() == 1)
-				MyPlayerId = SocketAsId;
-			SPDLOG_LOGGER_INFO(GameLog, "Allocated player for socket [{:04x}]",
-				SocketAsId);
-			return &FieldIterator->second;
-		}
-
-		GameManagerStatus CheckReadyAndStartGame() { // Checks if everything is valid and the game has been properly setup
-			TRACE_FUNTION_PROTO;
-
-			// Check if all players are ready to play
-			if (NumberOfReadyPlayers != 2)
-				return SPDLOG_LOGGER_WARN(GameLog, "Not all players are ready'd up"),
-					STATUS_PLAYERS_NOT_READY;
-
-			// Check if players have all their ships placed
-			for (const auto& [Key, PlayerFieldController] : PlayerFieldData)
-				if (PlayerFieldController.NumberOfShipsPerType.GetTotalCount() <
-					PlayerFieldController.GetNumberOfShipsPlaced())
-					return SPDLOG_LOGGER_WARN(GameLog, "Not all ships of Player [{:04x}] have been placed",
-						Key), STATUS_NOT_ALL_PLACED;
-
-			// Switch game phase state and notify caller
-			CurrentGameState = GAME_PHASE;
-			SPDLOG_LOGGER_INFO(GameLog, "Game is setup, switched to game phase state");
-			return STATUS_SWITCHED_GAME_PHASE;
-		}
-
-
-		enum GetPlayerFieldForOperationByType {
-			PLAYER_INVALID = 0, // An invalid control type, may be adapted
-			GET_PLAYER_BY_ID,   // Retrieves player field by specified Id
-			DOES_ID_OWN_PLAYER, // Same as GET_PLAYER_BY_ID, just expressive for usecase
-			PLAYER_BY_TURN,     // Gets the player's field who has his current turn
-			GET_MY_PLAYER,      // Retrieves the clients own players field
-
-			GET_OPPONENT_PLAYER // Searches for the opponent of the specified players id
-			                    // If the specified id is INVALID_SOCKET gives the opponent
-			                    // of the clients player field
-		};
-		GmPlayerField* GetPlayerFieldByOperation(
-			GetPlayerFieldForOperationByType ControlType,
-			SOCKET                           SocketAsId
-		) {
-			TRACE_FUNTION_PROTO;
-
-			switch (ControlType) {
-			case PLAYER_INVALID:
-				SPDLOG_LOGGER_WARN(GameLog, "Check command PLAYER_INVALID");
-				break;
-
-			case DOES_ID_OWN_PLAYER:
-			case GET_PLAYER_BY_ID:
-				for (auto& [SocketHandle, PlayerField] : PlayerFieldData)
-					if (SocketHandle == SocketAsId)
-						return &PlayerField;
-				return nullptr;
-
-			case PLAYER_BY_TURN:
-				return GetPlayerFieldByOperation(GET_PLAYER_BY_ID,
-					CurrentSelectedPlayer);
-								
-			case GET_MY_PLAYER:
-				return GetPlayerFieldByOperation(GET_PLAYER_BY_ID,
-					MyPlayerId);
-				
-			case GET_OPPONENT_PLAYER:
-				if (SocketAsId == INVALID_SOCKET)
-					SocketAsId = MyPlayerId;
-				if (!GetPlayerFieldByOperation(DOES_ID_OWN_PLAYER,
-					SocketAsId))
-					return nullptr;
-				return PlayerFieldData.begin()->first == SocketAsId ?
-					&PlayerFieldData.begin()->second : &PlayerFieldData.end()->second;
-
-			default:
-				SPDLOG_LOGGER_ERROR(GameLog, "unsupplied handling encountered");
-			}
-
-			return nullptr;
-		}
-		SOCKET GetSocketAsIdForPlayerField(
-			const GmPlayerField& PlayerField
-		) const {
-			TRACE_FUNTION_PROTO;
-			
-			for (const auto& [SocketAsId, InternalField] : PlayerFieldData)
-				if (InternalField == PlayerField)
-					return SocketAsId;
-			return INVALID_SOCKET;
-		}
-
-
-
-		uint8_t GetCurrentPlayerCount() {
-			TRACE_FUNTION_PROTO;
-
-			return PlayerFieldData.size();
-		}
-		GamePhase GetCurrentGamePhase() {
-			TRACE_FUNTION_PROTO;
-
-			return CurrentGameState;
-		}
-		
-		// Game parameters, used for allocating players
-		const PointComponent InternalFieldDimensions;
-		const ShipCount      InternalShipCount;
-
-	private:
-		GameManager2(
-			      PointComponent FieldSizes,
-			const ShipCount&     NumberOfShips
-		) 
-			: InternalFieldDimensions(FieldSizes),
-			  InternalShipCount(NumberOfShips) {
-			TRACE_FUNTION_PROTO;
-
-			SPDLOG_LOGGER_INFO(GameLog, "GameManager instance created {}",
-				(void*)this);
-		}
-
-
-		map<SOCKET, GmPlayerField> PlayerFieldData;
-
-		SOCKET    MyPlayerId = INVALID_SOCKET;
-		SOCKET    CurrentSelectedPlayer = INVALID_SOCKET;
-
-		uint8_t   NumberOfReadyPlayers = 0;
-
-		GamePhase CurrentGameState = SETUP_PHASE;
-	};
 }

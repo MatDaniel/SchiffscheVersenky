@@ -96,7 +96,7 @@
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="Engine.ixx" />
-    <ClCompile Include="EntryPoint.cpp" />
+    <ClCompile Include="EntryPoint.ixx" />
     <ClCompile Include="GameField.ixx" />
     <ClCompile Include="DearImGUI.ixx" />
     <ClCompile Include="GameManagment.ixx" />

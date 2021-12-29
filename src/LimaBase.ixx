@@ -11,6 +11,8 @@ using namespace std;
 export SpdLogger NetworkLog;
 
 
+
+// Magic helpers for weird ass c++ fuckery
 export template<typename T>
 class MagicInstanceManagerBase {
 public:

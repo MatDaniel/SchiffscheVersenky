@@ -1,9 +1,13 @@
 // Entrypoint of client and server, this implements the layer manager,
 // responsible for the connection between the game, network manager and the engine,
 // as well as implementing the handling for client and server operation modes
+// module;
+
 #include "BattleShip.h"
 #include <memory>
 #include <string_view>
+
+// export module LayerBase;
 
 // Ugly but do i care ?
 using namespace std;
@@ -376,7 +380,7 @@ namespace Client {
 
 
 
-int main(
+export int main(
 	int   argc,
 	const char* argv[]
 ) {
@@ -452,6 +456,7 @@ int main(
 						Result), EXIT_FAILURE;
 			}
 #endif
+			GameManager2::ManualReset();
 			SPDLOG_LOGGER_INFO(LayerLog, "Server successfully terminated, shutting down and good night :D");
 		}
 								  break;
@@ -518,6 +523,7 @@ int main(
 
 				// Exit
 				SPDLOG_LOGGER_INFO(LayerLog, "Client successfully terminated");
+				GameManager2::ManualReset();
 				return code;
 			}
 		}
