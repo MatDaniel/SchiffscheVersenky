@@ -122,6 +122,8 @@ export namespace Network::Client {
 
 			// Check if Multiplexer has attached to server
 			auto Result = CheckoutServerSocket();
+			if (Result & EXCEPT_MASK)
+				return NwRequestPacket::STATUS_REQUEST_ERROR;
 			if (!(Result & CONNECTED_MASK)) // !SocketAttached
 				return NwRequestPacket::STATUS_WORK_PENDING;
 
@@ -278,7 +280,6 @@ export namespace Network::Client {
 				return Result;
 			}
 		}
-
 
 	private:
 		NetworkManager2(

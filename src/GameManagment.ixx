@@ -74,11 +74,14 @@ export namespace GameManagment {
 			const GmPlayerField& PlayerField
 		) const;
 
-		uint8_t GetCurrentPlayerCount() {
+		uint8_t GetCurrentPlayerCount() const {
 			TRACE_FUNTION_PROTO; return PlayerFieldData.size();
 		}
-		GamePhase GetCurrentGamePhase() {
+		GamePhase GetCurrentGamePhase() const {
 			TRACE_FUNTION_PROTO; return CurrentGameState;
+		}
+		SOCKET GetCurrentSelectedPlayer() const {
+			TRACE_FUNTION_PROTO; return CurrentSelectedPlayer;
 		}
 
 		// Game parameters, used for allocating players
@@ -125,7 +128,7 @@ export namespace GameManagment {
 		using StatusResponseT = pair<PointComponent, PlayFieldStatus>;
 		using ProbeStatusList = span<StatusResponseT>;
 
-		GmPlayerField(
+		GmPlayerField(                        // Todo move this to private, need to make make_unique enable
 			const GameManager2* ManagerDevice
 		) {
 			TRACE_FUNTION_PROTO;
@@ -144,6 +147,8 @@ export namespace GameManagment {
 				"Playerfield [{}:{}] destroyed, cleaning up state",
 				(void*)this, (void*)FieldCellStates.get());
 		}
+		GmPlayerField(const GmPlayerField&) = delete;
+		GmPlayerField& operator=(const GmPlayerField&) = delete;
 
 
 		ProbeStatusList ProbeShipPlacement( // Probes the passed parameters of a possible requested ship placement

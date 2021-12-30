@@ -24,23 +24,21 @@ export namespace Network::Server {
 		friend class NetworkManager2;
 	public:
 		~NwClientControl() {
-			TRACE_FUNTION_PROTO;
-
-			SPDLOG_LOGGER_INFO(NetworkLog, "Client controller has been closed");
+			TRACE_FUNTION_PROTO; SPDLOG_LOGGER_INFO(NetworkLog, "Client controller has been closed");
 		}
 		bool operator==(
 			const NwClientControl* Rhs
 			) const {
-			TRACE_FUNTION_PROTO;
-
-			return this == Rhs;
+			TRACE_FUNTION_PROTO; return this == Rhs;
 		}
 
-		int32_t SendShipControlPackageDynamic(    // Sends a package to the 
-			const ShipSockControl& RequestPackage
+		// TODO: rewrite
+		int32_t SendShipControlPackageDynamic(    // Sends a package to the connected remote,
+		                                          // returns the size of the send data or SOCKET_ERROR on error
+			const ShipSockControl& RequestPackage // The Package to be send, the data behind the struct may actually be bigger
 		) {
 			TRACE_FUNTION_PROTO;
-
+			
 			// get size of package dynamically
 			// send package
 
@@ -48,17 +46,18 @@ export namespace Network::Server {
 
 
 
-			auto Result = send(AssociatedClient,
+			auto Result = send(SocketHandle,
 				(char*)&RequestPackage,
 				PackageSize, 0);
 
 			if (Result != SOCKET_ERROR)
 				return SPDLOG_LOGGER_INFO(NetworkLog, "Send package to client [{:04x}]",
-					AssociatedClient), Result;
+					SocketHandle), Result;
 
 			switch (auto WSAError = WSAGetLastError()) {
 			case WSAEWOULDBLOCK:
 				SPDLOG_LOGGER_WARN(NetworkLog, "Socket would block, this should never appear as the server doesn't use nonblocking sockets");
+				break;
 
 			default:
 				SPDLOG_LOGGER_ERROR(NetworkLog, "Internal server error, failed to send package {}", WSAError);
@@ -68,25 +67,23 @@ export namespace Network::Server {
 		}
 
 		int32_t RaiseStatusMessage(
-			ShipControlStatus StatusMessage
+			ShipSockControl::ShipControlStatus StatusMessage
 		) {
 			TRACE_FUNTION_PROTO;
 
 			return SendShipControlPackageDynamic(
 				(const ShipSockControl&)ShipSockControl {
-				.ControlCode = ShipSockControl::RAISE_STATUS_MESSAGE,
+					.ControlCode = ShipSockControl::RAISE_STATUS_MESSAGE,
 					.ShipControlRaisedStatus = StatusMessage
 			});
 		}
 
 		SOCKET GetSocket() const {
-			TRACE_FUNTION_PROTO;
-
-			return AssociatedClient;
+			TRACE_FUNTION_PROTO; return SocketHandle;
 		}
 
 	private:
-		SOCKET   AssociatedClient;
+		SOCKET   SocketHandle;
 		sockaddr ClientInformation;
 		int32_t  ClientInfoSize = sizeof(ClientInformation);
 	};
@@ -96,15 +93,13 @@ export namespace Network::Server {
 	struct NwRequestPacket
 		: public NwRequestBase {
 	
-		SOCKET            RequestingSocket; // the socket which was responsible for the incoming request
+		SOCKET           RequestingSocket; // the socket which was responsible for the incoming request
 		NwClientControl* OptionalClient;   // an optional pointer set by the NetworkManager to the client responsible for the request,
 											// on accept this will contain the information about the connecting client the callback can decide to accept the connection
 
 		bool StatusListModified = false;    // Internal flag relevant to the socket descriptor list, as it logs modification and restarts the evaluation loop
 
-
-
-		NwRequestStatus CompleteIoRequest(
+		[[noreturn]] NwRequestStatus CompleteIoRequest(
 			NwRequestStatus RequestStatus
 		) override {
 			TRACE_FUNTION_PROTO;
@@ -115,7 +110,11 @@ export namespace Network::Server {
 				[[fallthrough]];
 
 			default:
-				return NwRequestBase::CompleteIoRequest(RequestStatus);
+				NwRequestBase::CompleteIoRequest(RequestStatus);
+
+				// we now raise the package in order to immediately return to the manager
+				// The package is thrown as a pointer to the original passed request
+				throw this;
 			}
 		}
 	};
@@ -126,58 +125,75 @@ export namespace Network::Server {
 		friend class MagicInstanceManagerBase<NetworkManager2>;
 	public:
 		typedef void (*MajorFunction)(       // this has to handle the networking requests being both capable of reading and sending requests
-			NetworkManager2& NetworkDevice,  // a pointer to the NetWorkIoController responsible of said request packet
-			NwRequestPacket& NetworkRequest, // a pointer to a network request packet describing the current request
+			NetworkManager2* NetworkDevice,  // a pointer to the NetWorkIoController responsible of said request packet
+			NwRequestPacket& NetworkRequest, // a reference to a network request packet describing the current request
 			void*            UserContext     // A pointer to caller defined data thats forwarded to the callback in every call, could be the GameManager class or whatever
 			);
 
 		~NetworkManager2() {
-			TRACE_FUNTION_PROTO;
-
-			SPDLOG_LOGGER_INFO(NetworkLog, "Network manager destroyed, cleaning up sockets");
+			TRACE_FUNTION_PROTO; SPDLOG_LOGGER_INFO(NetworkLog, "Network manager destroyed, cleaning up sockets");
 		}
 	
 
+		NwRequestPacket::NwRequestStatus
+		BuildRequestDispatchAndReturn(                      // Builds, dispatches and catches a network request
+			MajorFunction                 IoServiceRoutine, // The passed routine responsible for handling
+			void*                         UserContext,      // The passed user context
+			SOCKET                        SocketAsId,       // Used to locate a client to associate to
+			NwRequestPacket::NwServiceCtl IoControlCode     // Describes the request to handle
+		) {
+			// Build basic request packet
+			NwRequestPacket RequestPacket{};
+			RequestPacket.IoControlCode = IoControlCode;
+			RequestPacket.OptionalClient = GetClientBySocket(SocketAsId);
+			RequestPacket.RequestingSocket = SocketAsId;
+			RequestPacket.IoRequestStatus = NwRequestPacket::STATUS_REQUEST_NOT_HANDLED;
 
-		long PollNetworkConnectionsAndDispatchCallbacks( // Starts internally handling accept requests passively,
-														 // notifies caller over callbacks and handles io requests
-														 // @Sherlock will have to call this with his game manager ready,
-														 // the callback is responsible for handling incoming io and connections.
-			MajorFunction IoCompleteRequestRoutine,      // a function pointer to a callback that handles socket operations
-			void*         UserContext,                   // a user supplied buffer containing arbitrary data forwarded to the callback
-			int32_t       Timeout = -1                   // specifies the timeout count the functions waits on poll till it returns
+			// Dispatch request and checkout
+			try {
+				IoServiceRoutine(this,
+					RequestPacket,
+					UserContext);
+
+				// If execution resumes here the packet was not completed, server has to terminate,
+				// as the state of several components could now be indeterminate 
+				SPDLOG_LOGGER_CRITICAL(NetworkLog, "The network request returned, it was not completed");
+				return NwRequestPacket::STATUS_REQUEST_NOT_HANDLED;
+			}
+			catch (const NwRequestPacket* CompletedPacket) {
+
+				// Check if allocated packet is the same as returned
+				if (CompletedPacket != &RequestPacket)
+					return SPDLOG_LOGGER_ERROR(NetworkLog, "The package completed doesnt match the send package signature"),
+						NwRequestPacket::STATUS_REQUEST_ERROR;
+				return CompletedPacket->StatusListModified ? 
+					NwRequestPacket::STATUS_LIST_MODIFIED : CompletedPacket->IoRequestStatus;
+			}
+		}
+
+		NwRequestPacket::NwRequestStatus
+		PollNetworkConnectionsAndDispatchCallbacks( // Starts internally handling accept requests passively,
+													// notifies caller over callbacks and handles io requests
+													// @Sherlock will have to call this with his game manager ready,
+													// the callback is responsible for handling incoming io and connections.
+			MajorFunction IoCompleteRequestRoutine, // a function pointer to a callback that handles socket operations
+			void*         UserContext,              // a user supplied buffer containing arbitrary data forwarded to the callback
+			int32_t       Timeout = -1              // specifies the timeout count the functions waits on poll till it returns
 		) {
 			TRACE_FUNTION_PROTO;
 
+		EvaluationLoopReset:
 			auto Result = WSAPoll(
 				SocketDescriptorTable.data(),
 				SocketDescriptorTable.size(),
 				Timeout);
 			if (Result <= 0)
-				return SPDLOG_LOGGER_ERROR(NetworkLog, "WSAPoll failed to query socket states with: {}",
-					WSAGetLastError()), Result;
+				return SPDLOG_LOGGER_ERROR(NetworkLog, "WSAPoll() failed to query socket states with: {}",
+					WSAGetLastError()),
+					NwRequestPacket::STATUS_SOCKET_ERROR;
 
 			for (auto i = 0; i < SocketDescriptorTable.size(); ++i) {
-
-				const auto BuildNetworkRequest = [this](            // Request factory helper, builds a quick and dirty network request
-					SOCKET                        SocketDescriptor, // A socket that will be used to locate its associated client
-					NwRequestPacket::NwServiceCtl IoControlCode     // The io control code that should be used to build the request
-					) -> NwRequestPacket {
-
-						// Lookup client list for matching client entry and create association
-						NwClientControl* Associate = nullptr;
-						for (auto& Client : ConnectedClients)
-							if (Client.GetSocket() == SocketDescriptor) {
-								Associate = &Client; break;
-							}
-						
-						NwRequestPacket ReturnValue{};
-						ReturnValue.IoControlCode = IoControlCode;
-						ReturnValue.OptionalClient = Associate;
-						ReturnValue.IoRequestStatus = NwRequestPacket::STATUS_REQUEST_NOT_HANDLED;
-						return ReturnValue;
-				};
-
+				
 				// Skip current round if there are no return events listed
 				auto ReturnEvent = SocketDescriptorTable[i].revents;
 				if (!ReturnEvent)
@@ -187,18 +203,16 @@ export namespace Network::Server {
 				if (ReturnEvent & (POLLERR | POLLHUP | POLLNVAL)) {
 
 					// Notify endpoint of disconnect
-					auto NetworkRequest = BuildNetworkRequest(SocketDescriptorTable[i].fd,
+					auto IoStatus = BuildRequestDispatchAndReturn(IoCompleteRequestRoutine,
+						UserContext,
+						SocketDescriptorTable[i].fd,
 						NwRequestPacket::SOCKET_DISCONNECTED);
-					IoCompleteRequestRoutine(
-						*this,
-						NetworkRequest,
-						UserContext);
-					if (NetworkRequest.IoRequestStatus < 0)
+					if (IoStatus < 0)
 						return SPDLOG_LOGGER_CRITICAL(NetworkLog, "Callback failed to handle client disconnect, aborting server"),
-						NetworkRequest.IoRequestStatus;
+							IoStatus;
 
 					// Removing client from entry/descriptor lists
-					if (auto Associate = NetworkRequest.OptionalClient)
+					if (auto Associate = GetClientBySocket(SocketDescriptorTable[i].fd))
 						ConnectedClients.erase(
 							Associate - ConnectedClients.data() + ConnectedClients.begin());
 					SPDLOG_LOGGER_INFO(NetworkLog, "Socket [{:04x}] was disconnected from the server {}",
@@ -207,8 +221,10 @@ export namespace Network::Server {
 							SocketDescriptorTable[i].fd));
 					SocketDescriptorTable.erase(
 						SocketDescriptorTable.begin() + i);
+					SPDLOG_LOGGER_WARN(NetworkLog, "Client list has been modified, iterators destroyed");
 
-					return NwRequestPacket::STATUS_LIST_MODIFIED;
+					// Reset current state of the loop and reiterate
+					goto EvaluationLoopReset;
 				}
 
 				// Input/Output related handling
@@ -217,41 +233,31 @@ export namespace Network::Server {
 					// Dispatch read command
 					SPDLOG_LOGGER_INFO(NetworkLog, "Socket [{:04x}] is requesting to receive a packet",
 						SocketDescriptorTable[i].fd);
-
-					auto NetworkRequest = BuildNetworkRequest(
+					auto IoStatus = BuildRequestDispatchAndReturn(IoCompleteRequestRoutine,
+						UserContext,
 						SocketDescriptorTable[i].fd,
-						i ? NwRequestPacket::INCOMING_PACKET
-						: NwRequestPacket::INCOMING_CONNECTION);
-					if (i == 0)
-						NetworkRequest.RequestingSocket = LocalServerSocket;
-					IoCompleteRequestRoutine(
-						*this,
-						NetworkRequest,
-						UserContext);
+						i ? NwRequestPacket::INCOMING_PACKET : NwRequestPacket::INCOMING_CONNECTION);
 
-					if (i == 0 && NetworkRequest.StatusListModified)
-						return SPDLOG_LOGGER_WARN(NetworkLog, "Client list has been modified, iterators destroyed"),
-						NetworkRequest.IoRequestStatus;
-					if (NetworkRequest.IoRequestStatus < 0)
-						return SPDLOG_LOGGER_ERROR(NetworkLog, "Callback failed to handle critical request [{}]",
-							(void*)&NetworkRequest), NetworkRequest.IoRequestStatus;
+					// Check if the list was modified and redo function
+					if (IoStatus == NwRequestPacket::STATUS_LIST_MODIFIED) {
+						SPDLOG_LOGGER_WARN(NetworkLog, "Client list has been modified, iterators destroyed"); goto EvaluationLoopReset;
+					}
+					if (IoStatus < 0)
+						return SPDLOG_LOGGER_ERROR(NetworkLog, "Callback failed to handle critical request"),
+							IoStatus;
 				}
 				if (ReturnEvent & POLLWRNORM) {
 
 					SPDLOG_LOGGER_INFO(NetworkLog, "Client [{:04x}] is ready to receive data",
 						SocketDescriptorTable[i].fd);
 
-					auto NetworkRequest = BuildNetworkRequest(
+					auto IoStatus = BuildRequestDispatchAndReturn(IoCompleteRequestRoutine,
+						UserContext,
 						SocketDescriptorTable[i].fd,
 						NwRequestPacket::OUTGOING_PACKET_COMPLETE);
-					IoCompleteRequestRoutine(
-						*this,
-						NetworkRequest,
-						UserContext);
-
-					if (NetworkRequest.IoRequestStatus < 0)
-						return SPDLOG_LOGGER_ERROR(NetworkLog, "Callback failed to handle critical request [{}]",
-							(void*)&NetworkRequest), NetworkRequest.IoRequestStatus;
+					if (IoStatus < 0)
+						return SPDLOG_LOGGER_ERROR(NetworkLog, "Callback failed to handle critical request"),
+							IoStatus;
 				}
 			}
 
@@ -259,50 +265,64 @@ export namespace Network::Server {
 				NwRequestPacket::STATUS_REQUEST_COMPLETED;
 		}
 
-		NwClientControl* AcceptIncomingConnection( // Accepts an incoming connection and allocates the client,
-													// if successful invalidates all references to existing clients
-													// This provides default request handling, RequestStatus modified
-			NwRequestPacket& NetworkRequest         // The NetworkRequest to apply accept handling on
+		NwClientControl& AcceptIncomingConnection( // Accepts an incoming connection and allocates the client,
+		                                           // if successful invalidates all references to existing clients
+		                                           // This provides default request handling, RequestStatus modified
+			NwRequestPacket& NetworkRequest        // The NetworkRequest to apply accept handling on
 		) {
 			TRACE_FUNTION_PROTO;
 
 			// Accepting incoming connection and allocating controller
 			NwClientControl ConnectingClient;
-			ConnectingClient.AssociatedClient = accept(
+			ConnectingClient.SocketHandle = accept(
 				NetworkRequest.RequestingSocket,
 				&ConnectingClient.ClientInformation,
 				&ConnectingClient.ClientInfoSize);
-			if (ConnectingClient.AssociatedClient == INVALID_SOCKET)
-				return NetworkRequest.CompleteIoRequest(NwRequestPacket::STATUS_REQUEST_ERROR),
-				SPDLOG_LOGGER_ERROR(NetworkLog, "WSA accept failed to connect with {}",
-					WSAGetLastError()),
-				nullptr;
-			SPDLOG_LOGGER_INFO(NetworkLog, "Accepted client connection");
+			if (ConnectingClient.SocketHandle == INVALID_SOCKET) {
+
+				SPDLOG_LOGGER_ERROR(NetworkLog, "accept() failed to connect to with {}",
+					WSAGetLastError());
+				NetworkRequest.CompleteIoRequest(NwRequestBase::STATUS_SOCKET_ERROR);
+			}
+			SPDLOG_LOGGER_INFO(NetworkLog, "Accepted client connection [{:04x}]",
+				ConnectingClient.SocketHandle);
 
 			// Adding client to local client list and socket descriptor table
-			auto ClientAddress = &ConnectedClients.emplace_back(ConnectingClient);
-			SocketDescriptorTable.emplace_back(WSAPOLLFD{
-				.fd = ConnectingClient.AssociatedClient,
-				.events = POLLIN });
-			NetworkRequest.CompleteIoRequest(NwRequestPacket::STATUS_LIST_MODIFIED);
+			auto& RemoteClient = ConnectedClients.emplace_back(ConnectingClient);
+			SocketDescriptorTable.emplace_back(ConnectingClient.SocketHandle, POLLIN);
 			SPDLOG_LOGGER_INFO(NetworkLog, "Client on socket [{:04x}] was sucessfully connected",
-				ConnectingClient.AssociatedClient);
-			return ClientAddress;
+				ConnectingClient.SocketHandle);
+			NetworkRequest.StatusListModified = true;
+			return RemoteClient;
 		}
-		SOCKET GetServerSocketHandle() {
+
+		void BroadcastShipSockControlExcept(       // Broadcasts the message details to all connected clients,
+		                                           // except for the one passed in SocketAsId
+			const ShipSockControl& PackageDetails, // The package to be send, the data behind the struct may be bigger
+			      SOCKET           SocketAsId      // The id of the client to be excluded
+		) {
 			TRACE_FUNTION_PROTO;
 
-			return LocalServerSocket;
+			for (auto& ClientNode : ConnectedClients)
+				if (ClientNode.GetSocket() != SocketAsId) {
+					
+					// Send data over client controller
+					auto Result = ClientNode.SendShipControlPackageDynamic(PackageDetails);
+					if (Result == SOCKET_ERROR)
+						throw runtime_error("Bad handling have to implement somehting here at some point, cant be assed to do it now");
+				}
+		}
+
+
+		// Helper and utility functions
+		SOCKET GetServerSocketHandle() {
+			TRACE_FUNTION_PROTO; return LocalServerSocket;
 		}
 		uint32_t GetNumberOfConnectedClients() {
-			TRACE_FUNTION_PROTO;
-
-			return ConnectedClients.size();
+			TRACE_FUNTION_PROTO; return ConnectedClients.size();
 		}
-		auto GetClientList() {
-			TRACE_FUNTION_PROTO;
-
-			return span(ConnectedClients);
+		span<NwClientControl> GetClientList() {
+			TRACE_FUNTION_PROTO; return ConnectedClients;
 		}
 		NwClientControl* GetClientBySocket(
 			SOCKET SocketAsId
@@ -310,12 +330,10 @@ export namespace Network::Server {
 			TRACE_FUNTION_PROTO;
 
 			for (auto& Client : ConnectedClients)
-				if (Client.AssociatedClient == SocketAsId)
+				if (Client.SocketHandle == SocketAsId)
 					return &Client;
 			return nullptr;
 		}
-
-
 
 	private:
 		NetworkManager2(
@@ -406,8 +424,8 @@ export namespace Network::Server {
 
 
 
-		SOCKET                   LocalServerSocket = INVALID_SOCKET;
+		SOCKET                  LocalServerSocket = INVALID_SOCKET;
 		vector<NwClientControl> ConnectedClients;
-		vector<WSAPOLLFD>        SocketDescriptorTable;
+		vector<WSAPOLLFD>       SocketDescriptorTable;
 	};
 }

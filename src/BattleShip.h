@@ -13,6 +13,7 @@
 #define SPDLOG_ACTIVE_LEVEL SPDLOG_LEVEL_TRACE
 #define NOMINMAX
 #include <spdlog/spdlog.h>
+#include <spdlog/fmt/ostr.h>
 #include <spdlog/sinks/stdout_color_sinks.h>
 
 

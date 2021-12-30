@@ -71,18 +71,19 @@ export namespace Network {
 		} IoControlCode;
 	
 
-		enum NwRequestStatus {      // describes the current state of this network request packet,
-								     // the callback has to set it correctly depending on what it did with the request
-			INVALID_STATUS = -2000,
-			STATUS_FAILED_TO_CONNECT, 
-			STATUS_REQUEST_ERROR,
-			STATUS_SOCKET_ERROR,
-			STATUS_REQUEST_NOT_HANDLED,
+		enum NwRequestStatus {            // Describes the current state of this network request packet,
+								          // the callback has to set it correctly depending on what it did with the request
+			INVALID_STATUS = -2000,       // This Status is invalid, gets counted as a failure
+			STATUS_FAILED_TO_CONNECT,     // Network manager failed to connect to socket
+			STATUS_REQUEST_ERROR,         // An undefined error occurred during handling of the NRP
+			STATUS_SOCKET_ERROR,          // An socket error occurred during the NRP, (consider disconnecting)
+			STATUS_REQUEST_NOT_HANDLED,   // Request was not completed and returned to the dispatcher
 
-			STATUS_REQUEST_COMPLETED = 0,
-			STATUS_REQUEST_IGNORED,
-			STATUS_WORK_PENDING,
-			STATUS_LIST_MODIFIED,
+			STATUS_REQUEST_COMPLETED = 0, // Indicates success and that the request was correctly handled
+			STATUS_LIST_MODIFIED,         // same as STATUS_REQUEST_COMPLETED, 
+			                              // but indicates that the socket descriptor list was modified
+			STATUS_REQUEST_IGNORED,       // Request was completed but ignored, also fine
+			STATUS_WORK_PENDING,          // Request is currently completing asynchronously
 		} IoRequestStatus;
 
 		virtual NwRequestStatus CompleteIoRequest(
@@ -114,7 +115,6 @@ export namespace Network {
 		FACING_WEST = 3
 	};
 
-
 	class PointComponent {
 	public:
 		static constexpr uint8_t INVALID_COORD = 0xff;
@@ -124,6 +124,11 @@ export namespace Network {
 			YComponent{},
 			ZComponent{};
 	};
+	ostream& operator<<(ostream& Input, const PointComponent& Location) {
+		TRACE_FUNTION_PROTO; 
+		return Input << fmt::format("{{{}:{}}}",
+			Location.XComponent, Location.YComponent);
+	}
 
 
 	// Sub packets
@@ -176,23 +181,23 @@ export namespace Network {
 
 
 
-
-	enum ShipControlStatus {
-		STATUS_INVALID_PLACEMENT = -2000,
-		STATUS_NOT_YOUR_TURN,
-
-		STATUS_NEUTRAL = 0,
-
-		STATUS_YOUR_TURN,
-		STATUS_YOURE_LOBBY_HOST, // special, may never be implemented for MVP version
-
-	};
-
 	// Server and Client may both receive as well as send this struct to remotes
 	struct ShipSockControl {
 		uint8_t SizeOfThisStruct = sizeof(*this); // Has to specify the size of the this struct including the flexible array member content,
 												  // this is used for transmitting data, if this field is not set properly the send controls will probably fail
 
+		enum ShipControlStatus {
+			STATUS_INVALID_PLACEMENT = -2000,
+			STATUS_NOT_YOUR_TURN,
+			STATUS_NOT_A_PLAYER,
+			STATUS_NOT_IN_PHASE,
+
+			STATUS_NEUTRAL = 0,
+
+			STATUS_YOUR_TURN,
+			STATUS_YOURE_LOBBY_HOST, // special, may never be implemented for MVP version
+
+		};
 		enum ShipControlCommandName {
 			// The following is only send by the client to server
 			NO_COMMAND_CLIENT = 0, // Should be unused (reserved for @Lima)
@@ -201,7 +206,8 @@ export namespace Network {
 			READY_UP_CLIENT,       // Send by the client to state if they are ready or not
 
 			// The following is only send by server to client
-			NO_COMMAND_SERVER = 0, // Should be unused (reserved for @Lima)
+			NO_COMMAND_SERVER,     // Should be unused (reserved for @Lima)
+			SHOOT_CELL_SERVER,     // Notifies the clients of a cell being shot at
 			CELL_STATE_SERVER,     // Notifies clients of cell state at location
 			DEAD_SHIP_SERVER,      // Notifies clients if ship is destroyed, posts its state information (overlays CELL_STATE_SERVER)
 			PLAYER_TURN_SERVER,    // Notifies the player if its his turn or not
@@ -209,21 +215,32 @@ export namespace Network {
 			STARTUP_FIELDSIZE,     // Broadcasts the field dimensions of the current game to all connecting clients
 			STARTUP_SHIPCOUNTS,    // Sends players specifically the number of ships available for the game
 
+			STARTUP_YOUR_ID,       // Transmitted when connecting as player, used by the server to locally identify players.
+			                       // Players have to store this and associate this id with them selfs and their own field,
+								   // To determine if the server informed them about a change to their own or opponents state.
+								   // Id is transfered in SocketAsSelectedPlayerId field
+			STARTUP_PLAYER_JOINED, // Currently not implemented as not needed
+
 			// Command control codes shared by server and client
 			RAISE_STATUS_MESSAGE = 2000, // Used to send status messages to clients
 
 		} ControlCode;
 
+		SOCKET SocketAsSelectedPlayerId; // Contains the servers id assined to a player that it wants to update, etc.
+		                                 // The client has to translate this id into its own id's
+		                                 // This field is only set by the server and should only be used by the client
+
 		// The Following contains all data required to describe the players fields, not all fields have to be used by any command and better not be exposed 
 		union {
-			// SET_SHIP_LOC_CLIENT
+			
+			// SET_SHIP_LOC_CLIENT / DEAD_SHIP_SERVER
 			struct {
-				ShipClass      ShipType;
 				PointComponent ShipsPosition;
 				ShipRotation   Rotation;
-			} SetShipLocation;
+				ShipClass      TypeOfShip;
+			} ShipLocation;
 
-			// SHOOT_CELL_CLIENT
+			// SHOOT_CELL_CLIENT/SERVER
 			PointComponent ShootCellLocation;
 
 			// STARTUP_FIELDSIZE
@@ -235,8 +252,10 @@ export namespace Network {
 			// CELL_STATE_SERVER
 			struct {
 				PointComponent Coordinates;
-				CellState       State;
+				CellState      State;
 			} CellStateUpdate;
+
+
 
 			// RAISE_STATUS_MESSAGE
 			ShipControlStatus ShipControlRaisedStatus;
@@ -270,4 +289,8 @@ export namespace Network {
 
 		static inline atomic<uint32_t> RefrenceCounter = 0;
 	};
+	ostream& operator<<(ostream& Input, const SOCKET& SocketAsId) {
+		TRACE_FUNTION_PROTO; return Input << fmt::format("[{:04x}]", (void*)SocketAsId);
+	}
+
 }

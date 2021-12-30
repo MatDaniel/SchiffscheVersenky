@@ -95,6 +95,7 @@
     <ResourceCompile Include="client.rc" />
   </ItemGroup>
   <ItemGroup>
+    <ClCompile Include="DispatchRoutine.ixx" />
     <ClCompile Include="Engine.ixx" />
     <ClCompile Include="EntryPoint.ixx" />
     <ClCompile Include="GameField.ixx" />
