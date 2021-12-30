@@ -51,7 +51,7 @@ export namespace Network::Server {
 				PackageSize, 0);
 
 			if (Result != SOCKET_ERROR)
-				return SPDLOG_LOGGER_INFO(NetworkLog, "Send package to client [{:04x}]",
+				return SPDLOG_LOGGER_INFO(NetworkLog, "Send package to client {}",
 					SocketHandle), Result;
 
 			switch (auto WSAError = WSAGetLastError()) {
@@ -90,15 +90,10 @@ export namespace Network::Server {
 
 
 
-	struct NwRequestPacket
+	class NwRequestPacket
 		: public NwRequestBase {
-	
-		SOCKET           RequestingSocket; // the socket which was responsible for the incoming request
-		NwClientControl* OptionalClient;   // an optional pointer set by the NetworkManager to the client responsible for the request,
-											// on accept this will contain the information about the connecting client the callback can decide to accept the connection
-
-		bool StatusListModified = false;    // Internal flag relevant to the socket descriptor list, as it logs modification and restarts the evaluation loop
-
+		friend class NetworkManager2;
+	public:
 		[[noreturn]] NwRequestStatus CompleteIoRequest(
 			NwRequestStatus RequestStatus
 		) override {
@@ -117,6 +112,15 @@ export namespace Network::Server {
 				throw this;
 			}
 		}
+
+		SOCKET           RequestingSocket; // the socket which was responsible for the incoming request
+		NwClientControl* OptionalClient;   // an optional pointer set by the NetworkManager to the client responsible for the request,
+			                               // on accept this will contain the information about the connecting client the callback can decide to accept the connection
+
+	private:
+		NwRequestPacket() = default; // Prevent others from being able to build this request
+
+		bool StatusListModified = false; // Internal flag relevant to the socket descriptor list, as it logs modification and restarts the evaluation loop
 	};
 
 	class NetworkManager2
@@ -142,6 +146,8 @@ export namespace Network::Server {
 			SOCKET                        SocketAsId,       // Used to locate a client to associate to
 			NwRequestPacket::NwServiceCtl IoControlCode     // Describes the request to handle
 		) {
+			TRACE_FUNTION_PROTO;
+
 			// Build basic request packet
 			NwRequestPacket RequestPacket{};
 			RequestPacket.IoControlCode = IoControlCode;
@@ -157,8 +163,9 @@ export namespace Network::Server {
 
 				// If execution resumes here the packet was not completed, server has to terminate,
 				// as the state of several components could now be indeterminate 
-				SPDLOG_LOGGER_CRITICAL(NetworkLog, "The network request returned, it was not completed");
-				return NwRequestPacket::STATUS_REQUEST_NOT_HANDLED;
+				constexpr auto ErrorMessage = "The network request returned, it was not completed";
+				SPDLOG_LOGGER_CRITICAL(NetworkLog, ErrorMessage);
+				throw runtime_error(ErrorMessage);
 			}
 			catch (const NwRequestPacket* CompletedPacket) {
 
@@ -215,7 +222,7 @@ export namespace Network::Server {
 					if (auto Associate = GetClientBySocket(SocketDescriptorTable[i].fd))
 						ConnectedClients.erase(
 							Associate - ConnectedClients.data() + ConnectedClients.begin());
-					SPDLOG_LOGGER_INFO(NetworkLog, "Socket [{:04x}] was disconnected from the server {}",
+					SPDLOG_LOGGER_INFO(NetworkLog, "Client socket {} was disconnected from the server with {}",
 						SocketDescriptorTable[i].fd,
 						GetLastWSAErrorOfSocket(
 							SocketDescriptorTable[i].fd));
@@ -231,7 +238,7 @@ export namespace Network::Server {
 				if (ReturnEvent & POLLRDNORM) {
 
 					// Dispatch read command
-					SPDLOG_LOGGER_INFO(NetworkLog, "Socket [{:04x}] is requesting to receive a packet",
+					SPDLOG_LOGGER_INFO(NetworkLog, "Socket is requesting to receive a packet",
 						SocketDescriptorTable[i].fd);
 					auto IoStatus = BuildRequestDispatchAndReturn(IoCompleteRequestRoutine,
 						UserContext,
@@ -240,7 +247,7 @@ export namespace Network::Server {
 
 					// Check if the list was modified and redo function
 					if (IoStatus == NwRequestPacket::STATUS_LIST_MODIFIED) {
-						SPDLOG_LOGGER_WARN(NetworkLog, "Client list has been modified, iterators destroyed"); goto EvaluationLoopReset;
+						SPDLOG_LOGGER_INFO(NetworkLog, "Client list has been modified, iterators destroyed"); goto EvaluationLoopReset;
 					}
 					if (IoStatus < 0)
 						return SPDLOG_LOGGER_ERROR(NetworkLog, "Callback failed to handle critical request"),
@@ -248,7 +255,7 @@ export namespace Network::Server {
 				}
 				if (ReturnEvent & POLLWRNORM) {
 
-					SPDLOG_LOGGER_INFO(NetworkLog, "Client [{:04x}] is ready to receive data",
+					SPDLOG_LOGGER_INFO(NetworkLog, "Client {} is ready to receive data",
 						SocketDescriptorTable[i].fd);
 
 					auto IoStatus = BuildRequestDispatchAndReturn(IoCompleteRequestRoutine,
@@ -284,13 +291,13 @@ export namespace Network::Server {
 					WSAGetLastError());
 				NetworkRequest.CompleteIoRequest(NwRequestBase::STATUS_SOCKET_ERROR);
 			}
-			SPDLOG_LOGGER_INFO(NetworkLog, "Accepted client connection [{:04x}]",
+			SPDLOG_LOGGER_INFO(NetworkLog, "Accepted client connection {}",
 				ConnectingClient.SocketHandle);
 
 			// Adding client to local client list and socket descriptor table
 			auto& RemoteClient = ConnectedClients.emplace_back(ConnectingClient);
 			SocketDescriptorTable.emplace_back(ConnectingClient.SocketHandle, POLLIN);
-			SPDLOG_LOGGER_INFO(NetworkLog, "Client on socket [{:04x}] was sucessfully connected",
+			SPDLOG_LOGGER_INFO(NetworkLog, "Client on socket {} was sucessfully connected",
 				ConnectingClient.SocketHandle);
 			NetworkRequest.StatusListModified = true;
 			return RemoteClient;
@@ -370,7 +377,7 @@ export namespace Network::Server {
 					SPDLOG_LOGGER_ERROR(NetworkLog, "Failed to create io handler socket for connect with {}",
 						WSAGetLastError()),
 					runtime_error("Failed to create io handler socket for connect"));
-			SPDLOG_LOGGER_INFO(NetworkLog, "Created socket [{:04x}] for network manager", LocalServerSocket);
+			SPDLOG_LOGGER_INFO(NetworkLog, "Created socket {} for network manager", LocalServerSocket);
 
 			Result = ::bind(
 				LocalServerSocket,
@@ -381,10 +388,10 @@ export namespace Network::Server {
 			if (Result == SOCKET_ERROR)
 				throw (freeaddrinfo(ServerInformation),
 					closesocket(LocalServerSocket),
-					SPDLOG_LOGGER_ERROR(NetworkLog, "Failed to bind port {} on socket [{:04x}] with {}",
+					SPDLOG_LOGGER_ERROR(NetworkLog, "Failed to bind port {} on socket {} with {}",
 						PortNumber, LocalServerSocket, WSAGetLastError()),
 					runtime_error("Failed to bind io socket"));
-			SPDLOG_LOGGER_INFO(NetworkLog, "Bound port {} to socket [{:04x}]",
+			SPDLOG_LOGGER_INFO(NetworkLog, "Bound port {} to socket {}",
 				PortNumber, LocalServerSocket);
 
 			Result = listen(
@@ -393,7 +400,7 @@ export namespace Network::Server {
 			if (Result == SOCKET_ERROR)
 				throw (freeaddrinfo(ServerInformation),
 					closesocket(LocalServerSocket),
-					SPDLOG_LOGGER_ERROR(NetworkLog, "Failed to switch socket [{:04x}] to listening mode with {}",
+					SPDLOG_LOGGER_ERROR(NetworkLog, "Failed to switch socket {} to listening mode with {}",
 						LocalServerSocket, WSAGetLastError()),
 					runtime_error("Failed to switch io socket to listening mode"));
 
@@ -416,7 +423,7 @@ export namespace Network::Server {
 				SO_ERROR,
 				(char*)&SocketErrorCode,
 				&ProbeSize) == SOCKET_ERROR)
-				return SPDLOG_LOGGER_ERROR(NetworkLog, "Failed to query last error on socket [{:04x}], query error {}",
+				return SPDLOG_LOGGER_ERROR(NetworkLog, "Failed to query last error on socket {}, query error {}",
 					SocketToProbe, WSAGetLastError()),
 				SOCKET_ERROR;
 			return SocketErrorCode;

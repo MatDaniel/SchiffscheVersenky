@@ -540,7 +540,7 @@ export namespace GameManagment {
 		// Check if the allocated player is our own (this is for client side) and return 
 		if (PlayerFieldData.size() == 1)
 			MyPlayerId = SocketAsId;
-		SPDLOG_LOGGER_INFO(GameLog, "Allocated player for socket [{:04x}]",
+		SPDLOG_LOGGER_INFO(GameLog, "Allocated player for socket {}",
 			SocketAsId);
 		return &FieldIterator->second;
 	}
@@ -558,7 +558,7 @@ export namespace GameManagment {
 		for (const auto& [Key, PlayerFieldController] : PlayerFieldData)
 			if (InternalShipCount.GetTotalCount() <
 				PlayerFieldController.GetNumberOfShipsPlaced())
-				return SPDLOG_LOGGER_WARN(GameLog, "Not all ships of Player [{:04x}] have been placed",
+				return SPDLOG_LOGGER_WARN(GameLog, "Not all ships of Player {} have been placed",
 					Key), STATUS_NOT_ALL_PLACED;
 
 		// Switch game phase state and notify caller

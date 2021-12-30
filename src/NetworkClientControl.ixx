@@ -21,10 +21,25 @@ export namespace Network::Client {
 	// A control structure passed to the clients network managers callback allocated by the dispatcher,
 	// it describes the request and io information associated.
 	// The request must be handled, several utility functions are provided for interfacing.
-	struct NwRequestPacket 
+	class NwRequestPacket 
 		: public NwRequestBase {
-		
-		ShipSockControl* IoControlPacketData;
+		friend class NetworkManager2;
+	public:
+		[[noreturn]] NwRequestStatus CompleteIoRequest(
+			NwRequestStatus RequestStatus
+		) override {
+			TRACE_FUNTION_PROTO;
+
+			// Complete this request and raise it to the manager
+			NwRequestBase::CompleteIoRequest(RequestStatus);
+			throw this;
+		}
+
+		// Optional contained package, dispatched with INCOMING_PACKET
+		ShipSockControl* IoControlPacketData; 
+
+	private:
+		NwRequestPacket() = default; // Make the constructor private so only the dispatcher can allocate NRP's
 	};
 
 
@@ -43,26 +58,56 @@ export namespace Network::Client {
 			size_t SizeOfDatapack;         // The length of data to be send stored
 		};
 
-
 		~NetworkManager2() {
-			TRACE_FUNTION_PROTO;
-
-			// SPDLOG_LOGGER_INFO(NetworkLog, "Client network manager destroyed, cleaning up sockets");
+			TRACE_FUNTION_PROTO; SPDLOG_LOGGER_INFO(NetworkLog, "Client network manager destroyed, cleaning up sockets");
 		}
 
-		
-		static constexpr auto READ_MASK = 1;
-		static constexpr auto WRITE_MASK = 2;
-		static constexpr auto EXCEPT_MASK = 4;
-		static constexpr auto CONNECTED_MASK = 8;
-		int32_t CheckoutServerSocket() { // Checks out the servers associated socket for updates
-			                             // and notifies the caller
+
+
+		NwRequestPacket::NwRequestStatus
+		RequestDispatchAndReturn(              // Dispatches and catches a network request
+			MajorFunction    IoServiceRoutine, // The passed routine responsible for handling
+			void*            UserContext,      // The passed user context
+			NwRequestPacket& NetworkRequest    // A NRP to extend and dispatch
+		) {
+			TRACE_FUNTION_PROTO;
+
+			// Dispatch request and checkout
+			try {
+				IoServiceRoutine(this,
+					NetworkRequest,
+					UserContext);
+
+				// If execution resumes here the packet was not completed, server has to terminate,
+				// as the state of several components could now be indeterminate 
+				constexpr auto ErrorMessage = "The network request returned, it was not completed";
+				SPDLOG_LOGGER_CRITICAL(NetworkLog, ErrorMessage);
+				throw runtime_error(ErrorMessage);
+			}
+			catch (const NwRequestPacket* CompletedPacket) {
+
+				// Check if allocated packet is the same as returned
+				if (CompletedPacket != &NetworkRequest)
+					return SPDLOG_LOGGER_ERROR(NetworkLog, "The completed packet {} doesnt match the send package signature",
+						(void*)CompletedPacket),
+					NwRequestPacket::STATUS_REQUEST_ERROR;
+				return CompletedPacket->IoRequestStatus;
+			}
+		}
+
+		NwRequestPacket::NwRequestStatus
+		ExecuteNetworkRequestHandlerWithCallback( // Probes requests and prepares IORP's for asynchronous networking
+		                                          // notifies the caller over a callback and provides completion routines
+		                                          // returns the last tracked request issue or status complete
+			MajorFunction NetworkServiceRoutine,  // a user provided callback responsible for handling/completing requests
+			void*         UserContext             // some user provided polymorphic value forwarded to the handler routine
+		) {
 			TRACE_FUNTION_PROTO;
 
 			// FD_SET list (in order: read, write, except) and initialize
 			fd_set DescriptorTable[3];
 			for (auto i = 0; i < 3; ++i) {
-				FD_ZERO(&DescriptorTable[i]); FD_SET(GameServer, &DescriptorTable[i]);
+				FD_ZERO(&DescriptorTable[i]); FD_SET(RemoteServer, &DescriptorTable[i]);
 			}
 			timeval Timeout{};
 			auto Result = select(0,
@@ -72,171 +117,170 @@ export namespace Network::Client {
 				&Timeout);
 
 			// Evaluate result of select
-			auto MergeOutput = 0;
 			switch (Result) {
 			case SOCKET_ERROR:
 				SPDLOG_LOGGER_ERROR(NetworkLog, "Socket query failed with {}",
 					WSAGetLastError());
-				return MergeOutput |= EXCEPT_MASK;
+				return NwRequestPacket::STATUS_SOCKET_ERROR;
 
 			case 0:
+				// Check for connect pending or no operations required
 				SPDLOG_LOGGER_TRACE(NetworkLog, "Socket query, no status information received, pending");
 				return NwRequestPacket::STATUS_WORK_PENDING;
 
 			default:
-				if (!SocketAttached) {
-					if (DescriptorTable[2].fd_count)
-						return SPDLOG_LOGGER_ERROR(NetworkLog, "Failed to connect to sever, refused connection"),
-							MergeOutput |= EXCEPT_MASK;
+				// Check except fd_set and report oob data / failed connect attempt
+				if (DescriptorTable[2].fd_count) {
+					if (!SocketAttached)
+						return SPDLOG_LOGGER_ERROR(NetworkLog, "Failed to connect to sever {}, refused connection",
+							RemoteServer),
+							NwRequestPacket::STATUS_FAILED_TO_CONNECT;
 
-					if (DescriptorTable[1].fd_count) {
-						freeaddrinfo(ServerInformation);
-						SocketAttached = true;
-						SPDLOG_LOGGER_INFO(NetworkLog, "Server connected on socket, switched controller to io mode");
-						return MergeOutput |= CONNECTED_MASK;
-					}
+					// This can be happily ignored cause I dont use OOB data :)
+					SPDLOG_LOGGER_DEBUG(NetworkLog, "Out of boud, data is ready for read");
 				}
 
-				if (DescriptorTable[2].fd_count)
-					return SocketAttached = false,
-						SPDLOG_LOGGER_ERROR(NetworkLog, "An error occured on the socket, while probing for socket state"),
-						MergeOutput |= EXCEPT_MASK;
 
-				if (DescriptorTable[0].fd_count)
-					MergeOutput |= READ_MASK | CONNECTED_MASK;
-				if (DescriptorTable[1].fd_count)
-					MergeOutput |= WRITE_MASK | CONNECTED_MASK;
-			}
+				//
+				// Now we take care of the main processing
+				//
 
-			return MergeOutput;
-		}
 
-		NwRequestBase::NwRequestStatus
-		ExecuteNetworkRequestHandlerWithCallback( // Probes requests and prepares IORP's for asynchronous networking
-		                                          // notifies the caller over a callback and provides completion routines
-		                                          // returns the last tracked request issue or status complete
-			MajorFunction NetworkServiceRoutine,  // a user provided callback responsible for handling/completing requests
-			void*         UserContext             // some user provided polymorphic value forwarded to the handler routine
-		) {
-			TRACE_FUNTION_PROTO;
+				auto BuildNetworkRequestPacket = [this](         // Helper function for building NRP's
+					NwRequestPacket::NwServiceCtl IoControlCode, //
+					ShipSockControl*              InternalPacket //
+					) -> NwRequestPacket {
+						NwRequestPacket NetworkRequest{};
+						NetworkRequest.IoControlCode = IoControlCode;
+						NetworkRequest.IoRequestStatus = NwRequestPacket::STATUS_REQUEST_NOT_HANDLED;
+						NetworkRequest.IoControlPacketData = InternalPacket;
+						return NetworkRequest;
+				};
 
-			// Check if Multiplexer has attached to server
-			auto Result = CheckoutServerSocket();
-			if (Result & EXCEPT_MASK)
-				return NwRequestPacket::STATUS_REQUEST_ERROR;
-			if (!(Result & CONNECTED_MASK)) // !SocketAttached
-				return NwRequestPacket::STATUS_WORK_PENDING;
-
-			// Check if we can and need to push new data to the socket
-			if (Result & WRITE_MASK &&
-				PacketQueue.size()) {
-
-				// The socket is ready to handle and send data
-				// Evil variable shadowing btw.
-				auto& InternalPacketEntry = PacketQueue.front();
-				auto Result = send(GameServer,
-					InternalPacketEntry.DataPacket.get(),
-					InternalPacketEntry.SizeOfDatapack, 0);
-
-				switch (Result) {
-				case SOCKET_ERROR:
-					switch (auto LastError = WSAGetLastError()) {
-					case WSAEWOULDBLOCK:
-						SPDLOG_LOGGER_WARN(NetworkLog, "Could not send delayed packet");
-						break;
-
-					default:
-						SPDLOG_LOGGER_ERROR(NetworkLog, "send failed to properly transmit delayed package");
-						return NwRequestPacket::STATUS_SOCKET_ERROR;
-					}
-					break;
-
-				default:
-					SPDLOG_LOGGER_INFO(NetworkLog, "Queued package was transmited");
-					if (Result < InternalPacketEntry.SizeOfDatapack)
-						SPDLOG_LOGGER_WARN(NetworkLog, "The message was not fully send {}<{}",
-							Result, InternalPacketEntry.SizeOfDatapack);
-					PacketQueue.pop();
-				}
-			}
-
-			// Check if we can receive data and exit if not
-			if (!(Result & READ_MASK))
-				return NwRequestPacket::STATUS_REQUEST_COMPLETED;
-
-			// Continue execution normally (when server is attached)
-			SPDLOG_LOGGER_TRACE(NetworkLog, "Checking socker for messages to process");
-			auto PacketBuffer = make_unique<char[]>(PACKET_BUFFER_SIZE);
-			do {
-				Result = recv(GameServer,
-					PacketBuffer.get(),
-					PACKET_BUFFER_SIZE,
-					0);
-
-				// recv result control
-				switch (Result) {
-				case SOCKET_ERROR:
-
-					// recv error handler (this may lead to the desired path of WSAWOULDBLOCK)
-					switch (auto SocketErrorCode = WSAGetLastError()) {
-					case WSAEWOULDBLOCK:
-						Result = 0;
-						SPDLOG_LOGGER_TRACE(NetworkLog, "No (more) request to handle");
-						break;
-
-					case WSAECONNRESET:
-						if (closesocket(GameServer) == SOCKET_ERROR)
-							SPDLOG_LOGGER_ERROR(NetworkLog, "Server socket failed to close properly with {}",
-								WSAGetLastError());
-						SPDLOG_LOGGER_ERROR(NetworkLog, "Connection reset, closed socket and aborting");
-						return NwRequestPacket::STATUS_REQUEST_ERROR;
-
-					default:
-						SPDLOG_LOGGER_CRITICAL(NetworkLog, "unhandled recv status {}",
-							SocketErrorCode);
-						return NwRequestPacket::STATUS_REQUEST_ERROR;
-					}
-					break;
-
-				// graceful server shutdown and disconnect handling
-				case 0: {
-					NwRequestPacket RequestDispatchPacket{};
-					RequestDispatchPacket.IoControlCode = NwRequestPacket::SOCKET_DISCONNECTED;
-					RequestDispatchPacket.IoRequestStatus = NwRequestPacket::STATUS_REQUEST_NOT_HANDLED;
-					NetworkServiceRoutine(this,
-						RequestDispatchPacket,
-						UserContext);
-					if (RequestDispatchPacket.IoRequestStatus < 0)
-						SPDLOG_LOGGER_ERROR(NetworkLog, "Callback did not handle disconnect");
-					SPDLOG_LOGGER_INFO(NetworkLog, "Server disconnected from client gracefully");
-					return RequestDispatchPacket.IoRequestStatus;
-				}
-
-				// Network packet handler dispatch
-				default: {
-					auto ShipPacket = (ShipSockControl*)PacketBuffer.get();
-					SPDLOG_LOGGER_INFO(NetworkLog, "Received shipsock control command package with ioctl: {}",
-						ShipPacket->ControlCode);
+				// Check for writeability / connected state
+				if (DescriptorTable[1].fd_count) {
 					
-					NwRequestPacket RequestDispatchPacket{};
-					RequestDispatchPacket.IoControlCode = NwRequestPacket::INCOMING_PACKET;
-					RequestDispatchPacket.IoControlPacketData = ShipPacket;
-					RequestDispatchPacket.IoRequestStatus = NwRequestPacket::STATUS_REQUEST_NOT_HANDLED;
-					NetworkServiceRoutine(this,
-						RequestDispatchPacket,
-						UserContext);
-					if (RequestDispatchPacket.IoRequestStatus < 0)
-						return SPDLOG_LOGGER_ERROR(NetworkLog, "Callback failed to handle ship sock control command"),
-							RequestDispatchPacket.IoRequestStatus;
-				}
-				}
-			} while (Result > 0);
+					// Check if multiplexer is attached
+					if (!SocketAttached) {
 
-			return NwRequestPacket::STATUS_REQUEST_COMPLETED;
+						// This scope handles successful connects
+						SPDLOG_LOGGER_INFO(NetworkLog, "Socket {} succesfully connected to remote",
+							RemoteServer);
+						SocketAttached = true;
+
+						// we do not need to notify the engine yet, that will happing implicitly,
+						// as the server sends the first 2 mandatory data packages
+						return NwRequestPacket::STATUS_NO_INPUT_OUTPUT;
+					}
+
+					// The remote socket is ready to take data againg, check if we have anything left to send
+					if (PacketQueue.size()) {
+
+						// The socket is ready to handle and send data
+						// Evil variable shadowing btw.
+						auto& InternalPacketEntry = PacketQueue.front();
+						auto Result = send(RemoteServer,
+							InternalPacketEntry.DataPacket.get(),
+							InternalPacketEntry.SizeOfDatapack, 0);
+
+						switch (Result) {
+						case SOCKET_ERROR:
+							switch (auto LastError = WSAGetLastError()) {
+							case WSAEWOULDBLOCK:
+								SPDLOG_LOGGER_WARN(NetworkLog, "Could not send delayed packet, will retry next time");
+								break;
+
+							default:
+								SPDLOG_LOGGER_ERROR(NetworkLog, "send() failed to properly transmit delayed package");
+								return NwRequestPacket::STATUS_SOCKET_ERROR;
+							}
+							break;
+
+						default:
+							SPDLOG_LOGGER_INFO(NetworkLog, "Queued package was transmited");
+							if (Result < InternalPacketEntry.SizeOfDatapack)
+								SPDLOG_LOGGER_WARN(NetworkLog, "The message was not fully send {}<{}",
+									Result, InternalPacketEntry.SizeOfDatapack);
+							PacketQueue.pop();
+						}
+					}
+				}
+
+				// Check for readability and dispatch appropriate handling
+				if (DescriptorTable[0].fd_count) {
+					
+					// Allocate packet buffer and loop recv() until all packets were read and dispatched
+					SPDLOG_LOGGER_TRACE(NetworkLog, "Checking socket {} for messages to process",
+						RemoteServer);
+					auto PacketBuffer = make_unique<char[]>(PACKET_BUFFER_SIZE);
+					for (;;) {
+						auto Result = recv(RemoteServer,
+							PacketBuffer.get(),
+							PACKET_BUFFER_SIZE, 0);
+
+						// recv result control
+						switch (Result) {
+						case SOCKET_ERROR:
+
+							// recv error handler (this may lead to the desired path of WSAWOULDBLOCK)
+							switch (auto SocketErrorCode = WSAGetLastError()) {
+							case WSAEWOULDBLOCK:
+								SPDLOG_LOGGER_TRACE(NetworkLog, "No (more) request to handle");
+								return NwRequestPacket::STATUS_NO_INPUT_OUTPUT;
+							
+							case WSAECONNRESET:
+								SPDLOG_LOGGER_ERROR(NetworkLog, "Connection reset, closed socket {}", 
+									RemoteServer);
+								closesocket(RemoteServer);
+								return NwRequestPacket::STATUS_SOCKET_ERROR;
+
+							default:
+								SPDLOG_LOGGER_CRITICAL(NetworkLog, "unhandled recv status {}",
+									SocketErrorCode);
+								return NwRequestPacket::STATUS_REQUEST_ERROR;
+							}
+							break;
+
+						// graceful server shutdown and disconnect handling
+						case 0: {
+							
+							// Dispatch disconnect notification
+							auto NetworkRequest = BuildNetworkRequestPacket(
+								NwRequestPacket::SOCKET_DISCONNECTED, nullptr);
+							auto IoStatus = RequestDispatchAndReturn(NetworkServiceRoutine,
+								UserContext,
+								NetworkRequest);
+							if (IoStatus < 0)
+								SPDLOG_LOGGER_ERROR(NetworkLog, "Callback did not handle disconnect"),
+							SPDLOG_LOGGER_INFO(NetworkLog, "Server disconnected from client");
+							return IoStatus;
+						}
+
+						// Network packet handler dispatch
+						default: {
+							
+							// Get internal packet data and dispatch to callback
+							auto ShipPacket = (ShipSockControl*)PacketBuffer.get();
+							SPDLOG_LOGGER_INFO(NetworkLog, "Received shipsock control command package with ioctl: {}",
+								ShipPacket->ControlCode);
+
+							auto NetworkRequest = BuildNetworkRequestPacket(
+								NwRequestPacket::SOCKET_DISCONNECTED, ShipPacket);
+							auto IoStatus = RequestDispatchAndReturn(NetworkServiceRoutine,
+								UserContext,
+								NetworkRequest);
+							if (IoStatus < 0)
+								return SPDLOG_LOGGER_ERROR(NetworkLog, "Callback failed to handle ship sock control command"),
+									IoStatus;
+						}
+						}
+					} 
+				}	
+			}
 		}
 
 		SOCKET GetSocket() const {
-			TRACE_FUNTION_PROTO; return GameServer;
+			TRACE_FUNTION_PROTO; return RemoteServer;
 		}
 
 		int32_t SendShipControlPackageDynamic(    // Sends a package to the connected server 
@@ -250,7 +294,7 @@ export namespace Network::Client {
 			auto PackageSize = sizeof(RequestPackage); // this has to be done properly, skipping it for now
 
 
-			auto Result = send(GameServer,
+			auto Result = send(RemoteServer,
 				(char*)&RequestPackage,
 				PackageSize, 0);
 
@@ -305,51 +349,51 @@ export namespace Network::Client {
 
 			auto ServerInformationIterator = ServerInformation;
 			do {
-				GameServer = socket(
+				RemoteServer = socket(
 					ServerInformationIterator->ai_family,
 					ServerInformationIterator->ai_socktype,
 					ServerInformationIterator->ai_protocol);
-			} while (GameServer == INVALID_SOCKET &&
+			} while (RemoteServer == INVALID_SOCKET &&
 				(ServerInformationIterator = ServerInformationIterator->ai_next));
-			if (GameServer == INVALID_SOCKET)
+			if (RemoteServer == INVALID_SOCKET)
 				throw (freeaddrinfo(ServerInformation),
 					SPDLOG_LOGGER_ERROR(NetworkLog, "Failed to allocate socket for target server {}",
 						WSAGetLastError()),
 					runtime_error("Failed to allocate socket for target server"));
-			SPDLOG_LOGGER_INFO(NetworkLog, "Allocated socket [{:04x}] for remote",
-				GameServer);
+			SPDLOG_LOGGER_INFO(NetworkLog, "Allocated socket {} for remote",
+				RemoteServer);
 
 			u_long BlockingMode = 1;
 			Result = ioctlsocket(
-				GameServer,
+				RemoteServer,
 				FIONBIO,
 				&BlockingMode);
 			if (Result == SOCKET_ERROR)
 				throw (freeaddrinfo(ServerInformation),
-					closesocket(GameServer),
-					SPDLOG_LOGGER_ERROR(NetworkLog, "Failed to switch socket [{:04x}] to nonblocking mode {}",
-						GameServer, WSAGetLastError()),
+					closesocket(RemoteServer),
+					SPDLOG_LOGGER_ERROR(NetworkLog, "Failed to switch socket {} to nonblocking mode {}",
+						RemoteServer, WSAGetLastError()),
 					runtime_error("Failed to switch server socket to nonblocking mode"));
-			SPDLOG_LOGGER_INFO(NetworkLog, "Switched socket [{:04x}] to nonblocking mode",
-				GameServer);
+			SPDLOG_LOGGER_INFO(NetworkLog, "Switched socket {} to nonblocking mode",
+				RemoteServer);
 
 			Result = connect(
-				GameServer,
+				RemoteServer,
 				ServerInformation->ai_addr,
 				ServerInformation->ai_addrlen);
 			if (auto Response = WSAGetLastError(); Result == SOCKET_ERROR)
 				if (Response != WSAEWOULDBLOCK)
 					throw (freeaddrinfo(ServerInformation),
-						closesocket(GameServer),
-						SPDLOG_LOGGER_ERROR(NetworkLog, "Failed to queue connection attempt on socket [{:04x}] {}",
-							GameServer, WSAGetLastError()),
+						closesocket(RemoteServer),
+						SPDLOG_LOGGER_ERROR(NetworkLog, "Failed to queue connection attempt on socket {} {}",
+							RemoteServer, WSAGetLastError()),
 						runtime_error("Failed to queue nonblocking connection attempt"));
-			SPDLOG_LOGGER_INFO(NetworkLog, "Queed connect atempt on socket [{:04x}] in async mode",
-				GameServer);
+			SPDLOG_LOGGER_INFO(NetworkLog, "Queed connect atempt on socket {} in async mode",
+				RemoteServer);
 		}
 
 		queue<PacketQueueEntry> PacketQueue;
-		SOCKET    GameServer = INVALID_SOCKET;
+		SOCKET    RemoteServer = INVALID_SOCKET;
 		bool      SocketAttached = false;
 		addrinfo* ServerInformation = nullptr;
 	};

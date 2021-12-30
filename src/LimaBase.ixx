@@ -13,6 +13,11 @@ export SpdLogger NetworkLog;
 
 
 // Magic helpers for weird ass c++ fuckery
+export template<class T>
+struct EnableMakeUnique : public T {
+	EnableMakeUnique(auto&&... ParametersForward)
+		: T(forward<decltype(ParametersForward)>(ParametersForward)...) { TRACE_FUNTION_PROTO; }
+};
 export template<typename T>
 class MagicInstanceManagerBase {
 public:
@@ -21,7 +26,7 @@ public:
 		TRACE_FUNTION_PROTO;
 		
 		struct EnableMakeUnique : public T {
-			inline EnableMakeUnique(Args&&... ParametersForward)
+			EnableMakeUnique(Args&&... ParametersForward)
 				: T(forward<Args>(ParametersForward)...) { TRACE_FUNTION_PROTO; };
 		};
 		InstanceObject = make_unique<EnableMakeUnique>(forward<Args>(Parameters)...);
@@ -84,6 +89,7 @@ export namespace Network {
 			                              // but indicates that the socket descriptor list was modified
 			STATUS_REQUEST_IGNORED,       // Request was completed but ignored, also fine
 			STATUS_WORK_PENDING,          // Request is currently completing asynchronously
+			STATUS_NO_INPUT_OUTPUT        // No processing applied and or applyable
 		} IoRequestStatus;
 
 		virtual NwRequestStatus CompleteIoRequest(

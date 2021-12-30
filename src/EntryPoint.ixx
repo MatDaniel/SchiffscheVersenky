@@ -167,7 +167,7 @@ export int main(
 			auto& ServerObject = Network::Client::NetworkManager2::CreateObject(
 				ServerAddress,
 				PortNumber);
-#if 0
+
 			for (;;) {
 
 				::Client::ManagmentDispatchState State{};
@@ -190,7 +190,7 @@ export int main(
 			}
 
 			__debugbreak(); 
-#endif
+
 
 			// Unit test code for client, we will merge this together later (aka the network io into the engine)
 			{

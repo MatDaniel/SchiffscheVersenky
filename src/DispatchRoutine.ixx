@@ -2,6 +2,7 @@
 module;
 
 #include "BattleShip.h"
+#include <functional>
 
 export module DispatchRoutine;
 using namespace std;
@@ -30,7 +31,7 @@ namespace Server {
 			RaisableStatus) < 0) {
 
 			// Abort NRP cause client manager failed to raise status
-			SPDLOG_LOGGER_CRITICAL(LayerLog, "Failed to post status message code on client [{:04x}]",
+			SPDLOG_LOGGER_CRITICAL(LayerLog, "Failed to post status message code on client {}",
 				NetworkRequest.RequestingSocket);
 			NetworkRequest.CompleteIoRequest(NwRequestPacket::STATUS_REQUEST_ERROR);
 		}
@@ -73,7 +74,7 @@ namespace Server {
 		RaiseStatusCompleteOnFailure(NetwrokDevice,
 			NetworkRequest,
 			ShipSockControl::STATUS_NOT_A_PLAYER);
-		SPDLOG_LOGGER_WARN(LayerLog, "Requesting client [{:04x}], is not a player", 
+		SPDLOG_LOGGER_WARN(LayerLog, "Requesting client {}, is not a player", 
 			NetworkRequest.RequestingSocket);
 		NetworkRequest.CompleteIoRequest(NwRequestPacket::STATUS_REQUEST_IGNORED);
 	}
@@ -91,7 +92,7 @@ namespace Server {
 		RaiseStatusCompleteOnFailure(NetworkDevice,
 			NetworkRequest,
 			ShipSockControl::STATUS_NOT_YOUR_TURN);
-		SPDLOG_LOGGER_WARN(LayerLog, "Requesting client [{:04x}], does not have his turn", 
+		SPDLOG_LOGGER_WARN(LayerLog, "Requesting client {}, does not have his turn", 
 			NetworkRequest.RequestingSocket);
 		NetworkRequest.CompleteIoRequest(NwRequestPacket::STATUS_REQUEST_IGNORED);
 	}
@@ -106,7 +107,7 @@ namespace Server {
 		if (Result)
 			return Result;
 
-		SPDLOG_LOGGER_ERROR(LayerLog, "Failed to transmit date to client [{:04x}]",
+		SPDLOG_LOGGER_ERROR(LayerLog, "Failed to transmit date to client {}",
 			ClientController.GetSocket());
 		NetworkRequest.CompleteIoRequest(NwRequestPacket::STATUS_SOCKET_ERROR);
 	}
@@ -188,7 +189,7 @@ export namespace Server {
 			// Evaluate recv() result and dispatch
 			switch (Result) {
 			case SOCKET_ERROR:
-				SPDLOG_LOGGER_ERROR(LayerLog, "fatal on receive on requesting socket [{:04x}], {}",
+				SPDLOG_LOGGER_ERROR(LayerLog, "fatal on receive on requesting socket {}, {}",
 					NetworkRequest.RequestingSocket, WSAGetLastError());
 				NetworkRequest.CompleteIoRequest(NwRequestPacket::STATUS_REQUEST_ERROR);
 								
@@ -302,7 +303,7 @@ export namespace Server {
 			// Further handling is required can be ignored for now
 
 			NetworkRequest.CompleteIoRequest(NwRequestPacket::STATUS_REQUEST_COMPLETED);
-			SPDLOG_LOGGER_WARN(LayerLog, "Socket [{:04x}] was gracefully disconnected",
+			SPDLOG_LOGGER_WARN(LayerLog, "Socket {} was gracefully disconnected",
 				NetworkRequest.OptionalClient->GetSocket());
 			break;
 
@@ -340,16 +341,14 @@ export namespace Client {
 				SPDLOG_LOGGER_INFO(LayerLog, "Debug command received, invalid handling");
 				__debugbreak();
 				NetworkRequest.CompleteIoRequest(NwRequestPacket::STATUS_REQUEST_COMPLETED);
-				break;
-
+				
 			case ShipSockControl::STARTUP_FIELDSIZE: {
 
 				// Get Engine passed init state and set coords
 				auto DispatchState = (ManagmentDispatchState*)UserContext;
 				DispatchState->InternalFieldDimensions = NetworkRequest.IoControlPacketData->GameFieldSizes;
-				SPDLOG_LOGGER_INFO(LayerLog, "Recored and stored server defined playfield size");
-				NetworkRequest.CompleteIoRequest(NwRequestPacket::STATUS_REQUEST_COMPLETED);
-				break;
+				SPDLOG_LOGGER_INFO(LayerLog, "Recorded and stored server defined playfield size");
+				NetworkRequest.CompleteIoRequest(NwRequestPacket::STATUS_REQUEST_COMPLETED);				
 			}
 			case ShipSockControl::STARTUP_SHIPCOUNTS: {
 
@@ -357,9 +356,8 @@ export namespace Client {
 				auto DispatchState = (ManagmentDispatchState*)UserContext;
 				DispatchState->NumberOFShipsPerType = NetworkRequest.IoControlPacketData->GameShipNumbers;
 				DispatchState->StateReady = true; // hacky, will refine later
-				SPDLOG_LOGGER_INFO(LayerLog, "Recored and stored server defined shipcounts");
+				SPDLOG_LOGGER_INFO(LayerLog, "Recorded and stored server defined shipcounts");
 				NetworkRequest.CompleteIoRequest(NwRequestPacket::STATUS_REQUEST_COMPLETED);
-				break;
 			}
 			case ShipSockControl::STARTUP_YOUR_ID: {
 
@@ -367,10 +365,9 @@ export namespace Client {
 				ServerRemoteIdForMyPlayer = NetworkRequest.IoControlPacketData->SocketAsSelectedPlayerId;
 				if (UserContext)
 					*(SOCKET*)UserContext = ServerRemoteIdForMyPlayer;
-				SPDLOG_LOGGER_INFO(LayerLog, "Server associated us with [{:04x}]",
+				SPDLOG_LOGGER_INFO(LayerLog, "Server associated us with {}",
 					ServerRemoteIdForMyPlayer);
 				NetworkRequest.CompleteIoRequest(NwRequestPacket::STATUS_REQUEST_COMPLETED);
-				break;
 			}
 
 
