@@ -1,5 +1,7 @@
 module;
 
+#include "BattleShip.h"
+
 #include <Windows.h>
 #include <WinUser.h>
 
@@ -28,8 +30,11 @@ module;
 
 export module Draw.Resources;
 import Draw.Renderer.Input;
+import Draw.Render;
 import Game.ShipInfo;
 using namespace Draw;
+
+export SpdLogger ResourceLog;
 
 // -- Resource Store --
 // A unified place for any Resource.
@@ -40,7 +45,7 @@ struct ResourceStore
 	inline static std::unordered_map<std::string, std::unique_ptr<T>> value { };
 };
 
-export namespace Resources
+export namespace Draw::Resources
 {
 
 	template <class T, class... Args>
@@ -147,540 +152,144 @@ private:
 
 };
 
-// -- Shader Stage --
-// This class represents a shader stage in the opengl shader pipeline.
-// It compiles the content of a resource into a shader stage that can
-// be used by the shader pipeline class.
-
-namespace
+namespace Draw::Resources::Loaders
 {
 
-	inline GLbitfield toBit(GLenum type)
+	// Shortcuts
+	using namespace Draw;
+
+	// -- Textures --
+
+	Render::Texture LoadTexture(const Resource& ImageResource, const Render::TextureLayout& InitialLayout)
 	{
-		switch (type)
-		{
-#define SHIV_SHADERBIT(Type) \
-    case Type: return Type##_BIT
-			SHIV_SHADERBIT(GL_VERTEX_SHADER);
-			SHIV_SHADERBIT(GL_FRAGMENT_SHADER);
-			SHIV_SHADERBIT(GL_GEOMETRY_SHADER);
-			SHIV_SHADERBIT(GL_TESS_CONTROL_SHADER);
-			SHIV_SHADERBIT(GL_TESS_EVALUATION_SHADER);
-			SHIV_SHADERBIT(GL_COMPUTE_SHADER);
-#undef SHIV_SHADERBIT
-		default:
-			spdlog::warn("[ShipRenderer] Unknown shader type of value {}, can't convert into a shader bit.", type);
-			return 0;
-		}
-
-	}
-
-}
-
-export class ShaderStage
-{
-public:
-
-    inline ShaderStage() noexcept
-        : m_bit(0)
-        , m_id(0)
-    {
-    }
-
-    inline ShaderStage(GLenum type, const Resource& res)
-        : m_bit(toBit(type))
-    {
-        auto code = res.str();
-        auto codes = code.c_str();
-        m_id = glCreateShaderProgramv(type, 1, &codes);
-        if (type == GL_FRAGMENT_SHADER)
-            glProgramUniform1i(m_id, TEXTURE_LOCATION, 0);
-    }
-
-    inline ~ShaderStage()
-    {
-        glDeleteProgram(m_id);
-    }
-
-    inline ShaderStage(ShaderStage&& other) noexcept
-        : m_bit(other.m_bit)
-        , m_id(other.m_id)
-    {
-        other.m_bit = 0;
-        other.m_id = 0;
-    }
-
-    inline ShaderStage& operator=(ShaderStage&& other) noexcept
-    {
-        m_bit = other.m_bit;
-        m_id = other.m_id;
-        other.m_bit = 0;
-        other.m_id = 0;
-        return *this;
-    }
-
-    ShaderStage(const ShaderStage&) = delete;
-    ShaderStage& operator=(const ShaderStage&) = delete;
-
-    inline GLbitfield bit() const noexcept
-    {
-        return m_bit;
-    }
-
-    inline GLuint id() const noexcept
-    {
-        return m_id;
-    }
-
-private:
-
-    GLbitfield m_bit;
-    GLuint m_id;
-
-};
-
-// -- Shader Pipeline --
-// This class contains the full opengl shader pipeline,
-// it's a combination of different shader stages.
-
-export class ShaderPipeline
-{
-public:
-
-	inline ShaderPipeline()
-		: m_id(0)
-	{
-	}
-
-	template <typename... Stages>
-	inline ShaderPipeline(ShaderStage* stage, Stages*... stages)
-	{
-		static_assert((std::is_same_v<Stages, ShaderStage> && ...), "All arguments are required to be pointers to ShaderStage instances.");
-		glCreateProgramPipelines(1, &m_id);
-		glUseProgramStages(m_id, stage->bit(), stage->id());
-		(glUseProgramStages(m_id, stages->bit(), stages->id()), ...);
-	}
-	
-    inline ~ShaderPipeline()
-	{
-		glDeleteProgramPipelines(1, &m_id);
-	}
-
-    inline ShaderPipeline(ShaderPipeline&& other) noexcept
-		: m_id(other.m_id)
-	{
-		other.m_id = 0;
-	}
-
-    inline ShaderPipeline& operator=(ShaderPipeline&& other) noexcept
-	{
-		m_id = other.m_id;
-		other.m_id = 0;
-		return *this;
-	}
-
-	ShaderPipeline(const ShaderPipeline&) = delete;
-	ShaderPipeline& operator=(const ShaderPipeline&) = delete;
-
-	inline GLuint id() const noexcept
-	{
-		return m_id;
-	}
-
-private:
-
-	GLuint m_id;
-
-};
-
-// -- Texture --
-// Represents an image that can be used by opengl.
-// It's loaded from a resource into gpu memory.
-
-namespace
-{
-
-	constexpr GLenum ImgInternalFormats[4]
-	{
-		GL_R8,
-		GL_RG8,
-		GL_RGB8,
-		GL_RGBA8
-	};
-
-	constexpr GLenum ImgFormats[4]
-	{
-		GL_RED,
-		GL_RG,
-		GL_RGB,
-		GL_RGBA
-	};
-
-	inline void initTexture(GLuint id, GLuint channels, GLsizei width, GLsizei height, const void* data)
-	{
-		assert(channels > 0 && channels <= 4); // Invalid channel amount!
-		GLenum format = ImgFormats[channels],
-			iFormat = ImgInternalFormats[channels];
-
-		// Check if the format is valid.
-		if (format && iFormat)
-		{
-
-			// Setup texture parameters
-			glTextureParameteri(id, GL_TEXTURE_WRAP_S, GL_REPEAT);
-			glTextureParameteri(id, GL_TEXTURE_WRAP_T, GL_REPEAT);
-			glTextureParameteri(id, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
-			glTextureParameteri(id, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-
-			// Upload texture to the gpu
-			glTextureStorage2D(id, 1, iFormat, width, height);
-			glTextureSubImage2D(id, 0, 0, 0, width, height, format, GL_UNSIGNED_BYTE, data);
-
-			// Generate mipmap for the texture
-			glGenerateTextureMipmap(id);
-
-		}
-	}
-
-}
-
-export class Texture
-{
-public:
-
-    inline Texture()
-		: m_id(0)
-	{
-	}
-
-	inline Texture(GLuint channels, GLsizei width, GLsizei height, const void* data)
-	{
-		
-		// Create a texture handle.
-		glCreateTextures(GL_TEXTURE_2D, 1, &m_id);
-
-		// Initialize the texture
-		initTexture(m_id, channels, width, height, data);
-
-	}
-
-	inline Texture(const Resource& res)
-	{
-
-		// Create a texture handle.
-		glCreateTextures(GL_TEXTURE_2D, 1, &m_id);
 
 		// Get image data.
-		const stbi_uc* compressed_buf = static_cast<const stbi_uc*>(res.data());
-		int length = static_cast<int>(res.size());
+		const stbi_uc* CompressedImageBuffer = static_cast<const stbi_uc*>(ImageResource.data());
+		int ResourceLength = static_cast<int>(ImageResource.size());
 
 		// Uncompress image to a raw format.
-		int width, height, channels;
-		void* uncompressed_buf = stbi_load_from_memory(compressed_buf, length, &width, &height, &channels, 0);
+		int OutWidth, OutHeight, OutChannels;
+		void* UncompressedImageBuffer = stbi_load_from_memory(CompressedImageBuffer, ResourceLength,
+			&OutWidth, &OutHeight, &OutChannels, InitialLayout.Channels);
 
 		// Check for errors uncompressing the image.
-		if (!uncompressed_buf)
+		if (!UncompressedImageBuffer)
 		{
-			std::cerr << "Error: Uncompressing the image failed!" << std::endl;
-			return; // Abort
+			SPDLOG_LOGGER_CRITICAL(ResourceLog, "Failed to uncompress image!");
+			return { }; // Return uninitialized texture
 		}
 
-		// Initialize the texture
-		initTexture(m_id, channels, width, height, uncompressed_buf);
+		// Create the texture resource
+		auto InputLayout = InitialLayout;
+		InputLayout.Channels = OutChannels;
+		InputLayout.Width = OutWidth;
+		InputLayout.Height = OutHeight;
+		InputLayout.Pixels = UncompressedImageBuffer;
+		Render::Texture Result{ InputLayout };
 
 		// Remove the uncompressed texture from ram, because it's now in vram
 		// and we don't want to process it any further.
-		stbi_image_free(uncompressed_buf);
+		stbi_image_free(UncompressedImageBuffer);
+
+		// Return the created texture
+		return Result;
 
 	}
 
-	inline ~Texture()
+	// -- Shader Stages --
+
+	Render::ShaderStage LoadStage(GLenum ShaderType, const Resource& StageResource)
 	{
-		glDeleteTextures(1, &m_id);
+		auto Code = StageResource.str();
+		return { ShaderType, Code.c_str() };
 	}
 
-	inline Texture(Texture&& other) noexcept
-		: m_id(other.m_id)
-	{
-		other.m_id = 0;
-	}
+	// -- Models --
 
-	inline Texture& operator=(Texture&& other) noexcept
-	{
-		m_id = other.m_id;
-		other.m_id = 0;
-		return *this;
-	}
+	namespace to = tinyobj;
 
-	Texture(const Texture&) = delete;
-    Texture& operator=(const Texture&) = delete;
-
-    inline GLuint id() const noexcept
-    {
-        return m_id;
-    }
-
-private:
-
-    GLuint m_id;
-
-};
-
-// -- Material --
-// Used to tell on how to draw something.
-
-export struct Material
-{
-	ShaderPipeline* pipeline { nullptr };
-	Texture* texture { nullptr };
-	glm::vec4 color_tilt { };
-};
-
-export inline bool operator==(const Material& lhs, const Material& rhs) {
-	return lhs.pipeline == rhs.pipeline
-		&& lhs.texture == rhs.texture
-        && lhs.color_tilt == rhs.color_tilt;
-}
-
-export SHIV_FNV_HASH(Material)
-
-// -- Model --
-// This class is a reference to a model in the gpu.
-// It loads a model into the gpu. It then can be used
-// in the opengl shader pipeline to render a model.
-
-namespace to = tinyobj;
-
-namespace
-{
-
-    /**
-     * @brief A material reader that only returns the previously registered materials.
-     */
-    class DummyMaterialReader final : public to::MaterialReader
-    {
-    public:
-
-        // An usable instance of the class. (singleton)
-        static DummyMaterialReader instance;
-
-        // Override of the process function that only returns all registered materials.
-        virtual bool operator()(const std::string& matId,
-            std::vector<to::material_t>* materials,
-            std::map<std::string, int>* matMap, std::string* warn,
-            std::string* err) override
-        {
-            if (materials->empty())
-            {
-                for (auto& mappedMat : Resources::map<Material>())
-                {
-                    matMap->emplace(mappedMat.first, (int)materials->size());
-                    materials->push_back({ mappedMat.first });
-                }
-            }
-            return true;
-        }
-
-        // Default virtual destructor for the abstract class.
-        virtual ~DummyMaterialReader() override = default;
-
-    private:
-
-        // Disables constructing the instance from outside.
-        DummyMaterialReader() = default;
-
-    };
-
-    // Static instancing of the default instance
-    DummyMaterialReader DummyMaterialReader::instance;
-
-    /**
-     * @brief A raw mesh read from the input stream.
-     */
-    struct RawMesh
-    {
-
-        to::attrib_t attrib;
-        std::vector<to::shape_t> shapes;
-        std::vector<to::material_t> materials;
-        std::string warn, err;
-
-        /**
-         * @brief Parses an embedded resource.
-         * @param rid The id of the embedded resource to parse.
-         * @retval Whether the model was parsed successfully or not.
-         */
-        inline bool load(const Resource& res)
-        {
-
-            // Load resource as stream.
-            auto stream = res.stream();
-
-            // Parse the resource.
-            return to::LoadObj(&attrib, &shapes, &materials, &warn, &err,
-                &stream, &DummyMaterialReader::instance);
-
-        }
-
-    };
-
-	inline void initModelBuffers(GLuint vao, GLuint vbo, GLuint ebo,
-		std::span<Vertex> vertices, std::span<uint32_t> indices)
+	namespace
 	{
 
-		// Upload the vertices and indices to the gpu buffers.
-		glNamedBufferStorage(vbo, sizeof(Vertex) * vertices.size(), vertices.data(), 0);
-		glNamedBufferStorage(ebo, sizeof(uint32_t) * indices.size(), indices.data(), 0);
-
-		// Describe the vertex buffer attributes
-		glVertexArrayAttribFormat(vao, POSITION_ATTRIBINDEX, sizeof(Vertex::position) / sizeof(float), GL_FLOAT, GL_FALSE, offsetof(Vertex, position));
-		glVertexArrayAttribFormat(vao, NORMAL_ATTRIBINDEX, sizeof(Vertex::normal) / sizeof(float), GL_FLOAT, GL_FALSE, offsetof(Vertex, normal));
-		glVertexArrayAttribFormat(vao, TEXCOORDS_ATTRIBINDEX, sizeof(Vertex::texCoords) / sizeof(float), GL_FLOAT, GL_FALSE, offsetof(Vertex, texCoords));
-
-		// Bind attributes to bindings
-		glVertexArrayAttribBinding(vao, POSITION_ATTRIBINDEX, 0);
-		glVertexArrayAttribBinding(vao, NORMAL_ATTRIBINDEX, 0);
-		glVertexArrayAttribBinding(vao, TEXCOORDS_ATTRIBINDEX, 0);
-
-		// Enable vertex attributes
-		glEnableVertexArrayAttrib(vao, POSITION_ATTRIBINDEX);
-		glEnableVertexArrayAttrib(vao, NORMAL_ATTRIBINDEX);
-		glEnableVertexArrayAttrib(vao, TEXCOORDS_ATTRIBINDEX);
-
-		// Bind the buffers to the vertex array object.
-		glVertexArrayVertexBuffer(vao, 0, vbo, 0, sizeof(Vertex));
-		glVertexArrayElementBuffer(vao, ebo);
-
-		// Setup divisor per vertex
-		glVertexArrayBindingDivisor(vao, 0, 0);
-
-		// Model matrix constants
-		constexpr size_t rowSize = sizeof(decltype(InstanceData::modelMtx)::row_type);
-		constexpr size_t colSize = sizeof(decltype(InstanceData::modelMtx)::col_type);
-		constexpr size_t rowAmount = colSize / sizeof(float);
-
-		// Describe the vertex buffer attributes
-		for (GLuint i = 0; i < rowAmount; i++)
-			glVertexArrayAttribFormat(vao, MODELMTX_ATTRIBINDEX + i, rowSize / sizeof(float), GL_FLOAT, GL_FALSE, (GLuint)(offsetof(InstanceData, modelMtx) + i * rowSize));
-		glVertexArrayAttribFormat(vao, (GLuint)COLTILT_ATTRIBINDEX, sizeof(InstanceData::colorTilt) / sizeof(float), GL_FLOAT, GL_FALSE, offsetof(InstanceData, colorTilt));
-
-		// Bind attributes to bindings
-		for (GLuint i = 0; i < rowAmount; i++)
-			glVertexArrayAttribBinding(vao, MODELMTX_ATTRIBINDEX + i, 1);
-		glVertexArrayAttribBinding(vao, COLTILT_ATTRIBINDEX, 1);
-
-		// Enable vertex attributes
-		for (GLuint i = 0; i < rowAmount; i++)
-			glEnableVertexArrayAttrib(vao, MODELMTX_ATTRIBINDEX + i);
-		glEnableVertexArrayAttrib(vao, COLTILT_ATTRIBINDEX);
-
-		// Setup divisor per instance
-		glVertexArrayBindingDivisor(vao, 1, 1);
-
-	}
-
-}
-
-export class Model
-{
-public:
-
-	/**
-	 * @brief Contains information on how to access the ebo in the model to draw a specific part of the model.
-	 */
-	struct IndexInfo
-	{
-		uint32_t offset { };
-		uint32_t size { };
-	};
-
-    /**
-     * @brief Represents a part of the loaded model with multiple materials attached to it.
-     */
-    struct Part
-    {
-        
-		std::string name { };
-        std::unordered_map<Material, IndexInfo> meshes { };
-
-		Part(std::string name = "")
-			: name(name)
+		/**
+		 * @brief A material reader that only returns the previously registered materials.
+		 */
+		class DummyMaterialReader final : public to::MaterialReader
 		{
-		}
+		public:
 
-		Part(Part&& other) noexcept
-			: name(std::move(other.name))
-			, meshes(std::move(other.meshes))
+			// An usable instance of the class. (singleton)
+			static DummyMaterialReader instance;
+
+			// Override of the process function that only returns all registered materials.
+			virtual bool operator()(const std::string& matId,
+				std::vector<to::material_t>* materials,
+				std::map<std::string, int>* matMap, std::string* warn,
+				std::string* err) override
+			{
+				if (materials->empty())
+				{
+					for (auto& mappedMat : Resources::map<Render::Material>())
+					{
+						matMap->emplace(mappedMat.first, (int)materials->size());
+						materials->push_back({ mappedMat.first });
+					}
+				}
+				return true;
+			}
+
+			// Default virtual destructor for the abstract class.
+			virtual ~DummyMaterialReader() override = default;
+
+		private:
+
+			// Disables constructing the instance from outside.
+			DummyMaterialReader() = default;
+
+		};
+
+		// Static instancing of the default instance
+		DummyMaterialReader DummyMaterialReader::instance;
+
+		/**
+		 * @brief A raw mesh read from the input stream.
+		 */
+		struct RawMesh
 		{
-		}
 
-		Part(const Part& other) noexcept
-			: name(other.name)
-			, meshes(other.meshes)
-		{
-		}
+			to::attrib_t attrib;
+			std::vector<to::shape_t> shapes;
+			std::vector<to::material_t> materials;
+			std::string warn, err;
 
-		Part& operator=(Part&& other) noexcept
-		{
-			name = std::move(other.name);
-			meshes = std::move(other.meshes);
-			return *this;
-		}
+			/**
+			 * @brief Parses an embedded resource.
+			 * @param rid The id of the embedded resource to parse.
+			 * @retval Whether the model was parsed successfully or not.
+			 */
+			inline bool load(const Resource& res)
+			{
 
-		Part& operator=(const Part& other)
-		{
-			name = other.name;
-			meshes = other.meshes;
-			return *this;
-		}
+				// Load resource as stream.
+				auto stream = res.stream();
 
-    };
+				// Parse the resource.
+				return to::LoadObj(&attrib, &shapes, &materials, &warn, &err,
+					&stream, &DummyMaterialReader::instance);
 
-    inline Model()
-		: m_vao(0)
-		, m_vbo(0)
-		, m_ebo(0)
-		, m_parts()
-	{
+			}
+
+		};
+
 	}
 
-	inline Model(std::span<Vertex> vertices, std::span<uint32_t> indices, std::span<Part> parts)
-		: m_parts()
+	Render::ConstModel LoadModel(const Resource& ModelResource)
 	{
-
-		// Create the buffers
-		glCreateVertexArrays(1, &m_vao);
-		glCreateBuffers(2, m_buffers);
-
-		// Upload data and describe the buffers
-		initModelBuffers(m_vao, m_vbo, m_ebo, vertices, indices);
-
-		// Copy the parts from the span to the internal vector
-		m_parts.reserve(parts.size());
-		for (auto& part : parts)
-			m_parts.emplace_back(std::move(part));
-
-	}
-
-    inline Model(const Resource& res)
-		: m_parts()
-	{
-
-		// Create the buffers:
-		// Even though, we won't upload data to them until later,
-		// in case the model loading fails, we have allocated
-		// valid buffers in opengl, so that we won't conflict
-		// with any other opengl buffers, when using them.
-		glCreateVertexArrays(1, &m_vao);
-		glCreateBuffers(2, m_buffers);
 
 		// Parse embedded resource mesh file with tinyobj_loader.
 		RawMesh raw;
-		if (!raw.load(res))
-		{
-			spdlog::warn("[ShipRenderer] Could not load model from resource: {}{}", raw.err, raw.warn);
-			return; // Exit, we can't process any data.
-		}
+		if (!raw.load(ModelResource))
+			SPDLOG_LOGGER_CRITICAL(ResourceLog, "Failed to load model from resource: {}{}", raw.err, raw.warn);
 
 
 
@@ -693,19 +302,19 @@ public:
 		// throw into one buffer that we'll send to the gpu later.
 
 		// The vertex buffer that will be uploaded to the gpu.
-		std::vector<Vertex> vertices{ };
+		std::vector<Vertex> vertices { };
 
 		// Used to identify and avoid duplicate vertices.
-		std::unordered_map<Vertex, uint32_t> uniqueVertices{ };
+		std::unordered_map<Vertex, uint32_t> uniqueVertices { };
 
 		// Used to sort out the indices by material.
-		std::unordered_map<Material, std::vector<uint32_t>> stagedIndices{ };
+		std::unordered_map<Render::Material, std::vector<uint32_t>> stagedIndices{ };
 		size_t total_indices = 0; // This variable is used later to allocate
 								  // a buffer once which can hold all indices.
 								  // This variable will increment on each index
 								  // processing.
 
-		Part all("$ALL"); // A model part that describes the whole model.
+		Render::ModelInfo info; // A model part that describes the model.
 
 		for (const auto& shape : raw.shapes)
 		{
@@ -718,7 +327,7 @@ public:
 			{
 
 				// Used to find material from a raw shape by face index
-				static const auto getMaterialBy = [](RawMesh& raw, const to::shape_t& shape, size_t face_index) -> Material
+				static const auto getMaterialBy = [](RawMesh& raw, const to::shape_t& shape, size_t face_index) -> Render::Material
 				{
 
 					// Get material id
@@ -732,9 +341,9 @@ public:
 					auto material_name = raw.materials[material_id].name;
 
 					// Find material by name
-					auto& matMap = Resources::map<Material>();
+					auto& matMap = Resources::map<Render::Material>();
 					auto iter = matMap.find(material_name);
-					return iter != matMap.end() ? *iter->second : Material();
+					return iter != matMap.end() ? *iter->second : Render::Material();
 
 				};
 
@@ -783,23 +392,15 @@ public:
 
 			}
 
-			// Initialize a new part
-			auto& part = m_parts.emplace_back(shape.name);
-
 			// Set material info (stage 1)
 			for (auto& [mat, curMatIndices] : stagedIndices)
 			{
 
 				// Get material indices.
-				auto& allMatIndices = all.meshes[mat];
-				auto& partMatIndices = part.meshes[mat];
+				auto& matIndices = info.Meshes[mat];
 
-				// Apply current part indices info for that material.
-				partMatIndices.offset = allMatIndices.size;
-				partMatIndices.size = static_cast<uint32_t>(curMatIndices.size()) - allMatIndices.size;
-
-				// Update all part indices info for that material.
-				allMatIndices.size = partMatIndices.offset + partMatIndices.size;
+				// Update part indices info for that material.
+				matIndices.size += static_cast<uint32_t>(curMatIndices.size()) - matIndices.size;
 
 			}
 
@@ -819,13 +420,7 @@ public:
 		{
 
 			// Update offsets for the parts (stage 2)
-			all.meshes[iIter.first].offset = indices_offset;
-			for (auto& part : m_parts)
-			{
-				auto mIter = part.meshes.find(iIter.first);
-				if (mIter != part.meshes.end())
-					mIter->second.offset += indices_offset;
-			}
+			info.Meshes[iIter.first].offset = indices_offset;
 
 			// Copy material indices to the new single buffer.
 			uint32_t* dstData = indices + indices_offset;
@@ -838,157 +433,77 @@ public:
 
 		}
 
-		m_parts.emplace_back(std::move(all));
-
-
 
 
 		// The data is now ready to be uploaded to the gpu.
 		// This means, we have to upload the data to the gpu and
 		// describe the content in the buffer for opengl.
 
-		initModelBuffers(m_vao, m_vbo, m_ebo,
-			std::span(vertices), std::span(indices, total_indices));
-		
+		Render::ConstModel Result {
+			Render::ConstMesh {
+				Render::ConstMappedBuffer<Vertex>(std::span(vertices)),
+				Render::ConstMappedBuffer<uint32_t>(std::span(indices, total_indices))
+			},
+			std::move(info)
+		};
 
 		// Cleanup
 		delete[] indices;
 
+		// Return model
+		return Result;
+
 	}
 
-    inline ~Model()
-	{
-		glDeleteVertexArrays(1, &m_vao);
-		glDeleteBuffers(2, m_buffers);
-	}
-
-    // Assignments
-    //-------------
-
-    inline Model(Model&& other) noexcept
-		: m_vao(other.m_vao)
-		, m_vbo(other.m_vbo)
-		, m_ebo(other.m_ebo)
-		, m_parts(std::move(other.m_parts))
-	{
-		other.m_vao = 0;
-		other.m_vbo = 0;
-		other.m_ebo = 0;
-	}
-
-    Model& operator=(Model&& other) noexcept
-	{
-		m_vao = other.m_vao;
-		m_vbo = other.m_vbo;
-		m_ebo = other.m_ebo;
-		m_parts = std::move(other.m_parts);
-		other.m_vao = 0;
-		other.m_vbo = 0;
-		other.m_ebo = 0;
-		return *this;
-	}
-
-	Model(const Model&) = delete;
-    Model& operator=(const Model&) = delete;
-
-    // Getters
-    //---------
-
-    inline GLuint vao() const noexcept
-    {
-        return m_vao;
-    }
-
-    inline GLuint vbo() const noexcept
-    {
-        return m_vbo;
-    }
-
-    inline GLuint ebo() const noexcept
-    {
-        return m_ebo;
-    }
-
-    inline const std::vector<Part>& parts() const noexcept
-    {
-        return m_parts;
-    }
-
-    inline const Part* find(const std::string& name) const noexcept
-    {
-
-        // Return first part with the name
-        for (auto& part : m_parts)
-            if (part.name == name)
-                return &part;
-
-        return nullptr; // or return an null model part,
-                        // it won't draw any triangles.
-
-    }
-
-private:
-
-    GLuint m_vao;
-    union {
-        struct {
-            GLuint m_vbo;
-            GLuint m_ebo;
-        };
-        GLuint m_buffers[2];
-    };
-
-    std::vector<Part> m_parts;
-
-};
-
-export inline bool operator==(const Model::IndexInfo& lhs, const Model::IndexInfo& rhs) {
-    return lhs.offset == rhs.offset
-        && lhs.size == rhs.size;
 }
-
-export SHIV_FNV_HASH(Model::IndexInfo)
 
 // -- Resource Store: Lifecycle --
 // This will initialize all resources or clean up them
 // depending on which methods are called.
 
-export namespace Resources
+export namespace Draw::Resources
 {
+
+	using namespace Draw;
 
 	void Init()
 	{
 
 		// Shader Stages
-		auto* cel_vert = Resources::emplace<ShaderStage>("VERT:Cel", GL_VERTEX_SHADER, Resource(IDR_VSHA_CEL));
-		auto* cel_frag = Resources::emplace<ShaderStage>("FRAG:Cel", GL_FRAGMENT_SHADER, Resource(IDR_FSHA_CEL));
+		auto* CelVertShader = Resources::emplace<Render::ShaderStage>("Vert/Cel", Loaders::LoadStage(GL_VERTEX_SHADER, Resource(IDR_VSHA_CEL)));
+		auto* CelFragShader = Resources::emplace<Render::ShaderStage>("Frag/Cel", Loaders::LoadStage(GL_FRAGMENT_SHADER, Resource(IDR_FSHA_CEL)));
 
 		// Shader Pipelines
-		auto* cel_prog = Resources::emplace<ShaderPipeline>("Cel", cel_vert, cel_frag);
+		auto* CelProgram = Resources::emplace<Render::ShaderPipeline>("Cel", CelVertShader, CelFragShader);
 
 		// Texture
-		constexpr char dummy_texdata[3]{ 0, 0, 0 };
-		auto* dummy_tex = Resources::emplace<Texture>("Dummy", 3, 1, 1, &dummy_texdata);
+		constexpr char DummyPixels[3] { 0, 0, 0 };
+		auto DummyLayout = Render::TextureLayout {
+			.Channels = 3,
+			.Width = 1,
+			.Height = 1,
+			.Pixels = &DummyPixels
+		}.WrapRepeat().FilterNearest();
+		auto* DummyTexture = Resources::emplace<Render::Texture>("Dummy", DummyLayout);
 
 		// Materials
-		Resources::emplace<Material>("Border", cel_prog, dummy_tex, glm::vec4(1.0F, 1.0F, 1.0F, 1.0F));
-		Resources::emplace<Material>("Water", cel_prog, dummy_tex, glm::vec4(0.18F, 0.33F, 1.0F, 1.0F));
-		Resources::emplace<Material>("Iron", cel_prog, dummy_tex, glm::vec4(0.8F, 0.8F, 0.8F, 1.0F));
+		Resources::emplace<Render::Material>("Border", CelProgram, DummyTexture, glm::vec4(1.0F, 1.0F, 1.0F, 1.0F));
+		Resources::emplace<Render::Material>("Water", CelProgram, DummyTexture, glm::vec4(0.18F, 0.33F, 1.0F, 1.0F));
+		Resources::emplace<Render::Material>("Iron", CelProgram, DummyTexture, glm::vec4(0.8F, 0.8F, 0.8F, 1.0F));
 
 		// Models
-		Resources::emplace<Model>("Teapot", Resource(IDR_MESH_TEAPOT));
 		for (size_t i = 0; i < ShipTypeCount; i++)
-			Resources::emplace<Model>(ShipInfos[i].resName, Resource(ShipInfos[i].resId));
+			Resources::emplace<Render::ConstModel>(ShipInfos[i].resName, Loaders::LoadModel(Resource(ShipInfos[i].resId)));
 
 	}
 
 	void CleanUp()
 	{
-		Resources::clear<Model>();
-		Resources::clear<Material>();
-		Resources::clear<ShaderPipeline>();
-		Resources::clear<ShaderStage>();
-		Resources::clear<Texture>();
+		Resources::clear<Render::ConstModel>();
+		Resources::clear<Render::Material>();
+		Resources::clear<Render::ShaderStage>();
+		Resources::clear<Render::ShaderPipeline>();
+		Resources::clear<Render::Texture>();
 	}
 
 }

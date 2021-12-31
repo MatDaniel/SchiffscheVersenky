@@ -19,10 +19,12 @@ module;
 export module Draw.Renderer;
 import Draw.Renderer.Input;
 import Draw.Resources;
-import Draw.Buffers;
+import Draw.Render;
 import Draw.Engine;
 import Draw.Window;
 import Draw.Timings;
+
+using namespace Draw;
 
 // -- Camera --
 // Contains info of the position and orientation of the camera.
@@ -115,10 +117,12 @@ public:
 	SceneRenderer()
 		: m_info()
 	{
+		
 		// Upload defaults
 		uploadSun();
 		uploadCamera();
-		uploadProjection();
+		uploadProjection(1, 1);
+
 	}
 
 	SceneRenderer(SceneRenderer&& other) = delete;
@@ -151,13 +155,11 @@ public:
 		view = glm::translate(view, -m_info.camera.position);
 		m_currentUbo.viewMtx = view;
 	}
-		
-	inline void uploadProjection() noexcept
+	
+	void uploadProjection(uint32_t Width, uint32_t Height) noexcept
 	{
-		constexpr float NEAR_PLANE = 0.1F;
-		constexpr float FAR_PLANE = 1000.0F;
 
-		const glm::vec2 size = Window::Properties::WindowSize;
+		const glm::vec2 size = { Width, Height };
 		const size_t type = m_info.projection.index();
 
 		// Exit if window is minimized
@@ -178,32 +180,36 @@ public:
 			break;
 		}
 	}
+
+	void uploadProjection(const Render::FrameBuffer& TargetFB) noexcept
+	{
+		uploadProjection(TargetFB.Width(), TargetFB.Height());
+	}
 	
 	inline void uploadSun() noexcept
 	{
 		m_currentUbo.sunDir = m_info.sun.direction;
 	}
 
-	inline void draw(const glm::mat4& mtx, const Model* model, const Model::IndexInfo& what, const Material& mat)
+	void Draw(const glm::mat4& Transformation, const GLuint VertexArray, const Render::IndexRange& Range, const Render::Material& Material)
 	{
 		m_instCount++;
-		auto& objectsToRender = m_queued[mat.pipeline][model][mat.texture];
-		auto [iter, result] = objectsToRender.try_emplace(what);
-		if (result)
+		auto& objectsToRender = m_queued[Material.Pipeline][VertexArray][Material.Texture];
+		auto [Iter, Result] = objectsToRender.try_emplace(Range);
+		if (Result)
 			m_cmdCount++;
-		iter->second.emplace_back(mtx, mat.color_tilt);
+		Iter->second.emplace_back(Transformation, Material.ColorTilt);
 	}
 
-	inline void draw(const glm::mat4& mtx, const Model* model, const Model::Part& part)
+	void Draw(const glm::mat4& Transformation, const GLuint VertexArray, const Render::ModelInfo& Info)
 	{
-		for (auto& [mat, what] : part.meshes)
-			draw(mtx, model, what, mat);
+		for (auto& [Material, Range] : Info.Meshes)
+			Draw(Transformation, VertexArray, Range, Material);
 	}
 
-	inline void draw(const glm::mat4& mtx, const Model* model)
+	void Draw(const glm::mat4& Transformation, const auto* Model)
 	{
-		for (auto& part : model->parts())
-			draw(mtx, model, part);
+		Draw(Transformation, Model->Mesh.VertexArray(), Model->Info);
 	}
 
 	inline void render()
@@ -214,12 +220,12 @@ public:
 
 		// Bind SceneUBO
 		m_currentUbo.time = Timings::TimeSinceStart();
-		*m_uboBufs[m_currentFrameBuf].ptr() = m_currentUbo;
-		glBindBufferBase(GL_UNIFORM_BUFFER, 0, m_uboBufs[m_currentFrameBuf].id());
+		*m_uboBufs[m_currentFrameBuf].Pointer() = m_currentUbo;
+		glBindBufferBase(GL_UNIFORM_BUFFER, 0, m_uboBufs[m_currentFrameBuf].Id());
 
 		// Expand buffers if necessary
-		m_instBufs[m_currentFrameBuf].resize(m_instCount);
-		m_cmdBufs[m_currentFrameBuf].resize(m_cmdCount);
+		m_instBufs[m_currentFrameBuf].Resize(m_instCount);
+		m_cmdBufs[m_currentFrameBuf].Resize(m_cmdCount);
 
 		size_t instIndexOffset = 0, cmdIndexOffset = 0;
 		for (auto& [pipeline, map] : m_queued)
@@ -233,34 +239,34 @@ public:
 						cmd.count = what.size;
 						cmd.instanceCount = (GLuint)vec.size();
 						cmd.baseInstance = (GLuint)instIndexOffset;
-						m_cmdBufs[m_currentFrameBuf].ptr()[cmdIndexOffset++] = cmd;
+						m_cmdBufs[m_currentFrameBuf].Pointer()[cmdIndexOffset++] = cmd;
 
 						// instance data
 						auto instSize = vec.size() * sizeof(InstanceData);
-						std::memcpy(m_instBufs[m_currentFrameBuf].ptr() + instIndexOffset, vec.data(), instSize);
+						std::memcpy(m_instBufs[m_currentFrameBuf].Pointer() + instIndexOffset, vec.data(), instSize);
 						instIndexOffset += vec.size();
 					}
 
 		size_t cmdOffset = 0;
-		glBindBuffer(GL_DRAW_INDIRECT_BUFFER, m_cmdBufs[m_currentFrameBuf].id());
+		glBindBuffer(GL_DRAW_INDIRECT_BUFFER, m_cmdBufs[m_currentFrameBuf].Id());
 		for (auto& [pipeline, map] : m_queued)
 		{
-			glBindProgramPipeline(pipeline->id());
-			for (auto& [model, map] : map)
+			glBindProgramPipeline(pipeline->Id());
+			for (auto& [vao, map] : map)
 			{
 
 				// Bind the instancing vbo to the model vao.
 				// Since the size maybe changed, we just do it for every model every frame.
-				glVertexArrayVertexBuffer(model->vao(), 1, m_instBufs[m_currentFrameBuf].id(), 0, sizeof(InstanceData));
+				glVertexArrayVertexBuffer(vao, 1, m_instBufs[m_currentFrameBuf].Id(), 0, sizeof(InstanceData));
 
 				// Bind the vao to the pipeline
-				glBindVertexArray(model->vao());
+				glBindVertexArray(vao);
 
 				for (auto& [texture, map] : map)
 				{
 					if (texture != nullptr)
 					{
-						glBindTextureUnit(0, texture->id());
+						glBindTextureUnit(0, texture->Id());
 					}
 					glMultiDrawElementsIndirect(GL_TRIANGLES, GL_UNSIGNED_INT, (const void*)cmdOffset, (GLsizei)map.size(), sizeof(IndirectCommand));
 					cmdOffset += map.size() * sizeof(IndirectCommand);
@@ -278,19 +284,19 @@ private:
 
 	SceneInfo m_info;
 	SceneUBO m_currentUbo;
-	StaticMappedBuffer<SceneUBO> m_uboBufs[BUFFERING_AMOUNT] {{},{}};
+	Render::StaticMappedBuffer<SceneUBO> m_uboBufs[BUFFERING_AMOUNT] {{1},{1}};
 
 	size_t m_instCount{ 0 };
 	size_t m_cmdCount{ 0 };
 
-	std::unordered_map<const ShaderPipeline*,
-		std::unordered_map<const Model*,
-		std::unordered_map<const Texture*,
-		std::unordered_map<Model::IndexInfo,
+	std::unordered_map<const Render::ShaderPipeline*,
+		std::unordered_map<GLuint, // Vertex Array Object
+		std::unordered_map<const Render::Texture*,
+		std::unordered_map<Render::IndexRange,
 		std::vector<InstanceData>>>>> m_queued;
 
-	DynamicMappedBuffer<InstanceData> m_instBufs[BUFFERING_AMOUNT] {{},{}};
-	DynamicMappedBuffer<IndirectCommand> m_cmdBufs[BUFFERING_AMOUNT] {{},{}};
+	Render::DynamicMappedBuffer<InstanceData> m_instBufs[BUFFERING_AMOUNT] {{},{}};
+	Render::DynamicMappedBuffer<IndirectCommand> m_cmdBufs[BUFFERING_AMOUNT] {{},{}};
 
 	uint8_t m_currentFrameBuf = 0;
 

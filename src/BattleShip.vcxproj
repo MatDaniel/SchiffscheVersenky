@@ -1,4 +1,4 @@
-﻿<?xml version="1.0" encoding="utf-8"?>
+<?xml version="1.0" encoding="utf-8"?>
 <Project DefaultTargets="Build" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
   <ItemGroup Label="ProjectConfigurations">
     <ProjectConfiguration Include="Debug|x64">
@@ -101,15 +101,17 @@
     <ClCompile Include="GameField.ixx" />
     <ClCompile Include="DearImGUI.ixx" />
     <ClCompile Include="GameManagment.ixx" />
+    <ClCompile Include="scenes\GameScene.ixx" />
     <ClCompile Include="LimaBase.ixx" />
-    <ClCompile Include="MenuScene.ixx" />
+    <ClCompile Include="scenes\MenuScene.ixx" />
+    <ClCompile Include="NetEngine.ixx" />
     <ClCompile Include="NetworkClientControl.ixx" />
     <ClCompile Include="NetworkServerControl.ixx" />
     <ClCompile Include="scenes\FieldSetupScene.ixx" />
     <ClCompile Include="impl\gladimpl.cpp" />
     <ClCompile Include="impl\imguiimpl.cpp" />
     <ClCompile Include="impl\miscimpl.cpp" />
-    <ClCompile Include="Buffers.ixx" />
+    <ClCompile Include="Render.ixx" />
     <ClCompile Include="Renderer.ixx" />
     <ClCompile Include="Resources.ixx" />
     <ClCompile Include="Scene.ixx" />

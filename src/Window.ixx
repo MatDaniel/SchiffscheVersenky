@@ -10,6 +10,7 @@ module;
 #include "BattleShip.h"
 
 export module Draw.Window;
+import Draw.Render;
 import Draw.Scene;
 
 // Logger
@@ -19,9 +20,10 @@ namespace
 {
 
 	// Properties
-	static GLFWwindow* s_Handle{ nullptr };
-	static glm::uvec2 s_WindowSize{ 960, 540 };
-	static glm::vec2 s_CursorPos{ 960, 540 };
+	static GLFWwindow* s_Handle { nullptr };
+	static glm::uvec2 s_WindowSize { 960, 540 };
+	static glm::vec2 s_CursorPos { 0, 0 };
+	static Draw::Render::DefaultFrameBuffer s_FrameBuffer { 960, 540 };
 
 #ifndef NDEBUG
 
@@ -50,8 +52,8 @@ namespace
 		s_WindowSize.x = width;
 		s_WindowSize.y = height;
 
-		// Set viewport to the size of the actual window
-		glViewport(0, 0, width, height);
+		// Set frame buffer viewport to the size of the actual window
+		s_FrameBuffer.Resize(width, height);
 
 		// Process callback
 		auto* scene = Scene::Current();
@@ -107,6 +109,7 @@ export namespace Window
 		auto& Handle = s_Handle;
 		const auto& WindowSize = s_WindowSize;
 		const auto& CursorPos = s_CursorPos;
+		const auto& FrameBuffer = s_FrameBuffer;
 
 	}
 

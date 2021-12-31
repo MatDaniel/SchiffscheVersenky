@@ -1,5 +1,6 @@
 #pragma once
 
+#include <glm/glm.hpp>
 #include "util/FNVHash.hpp"
 
 // -- Vertex --
@@ -17,4 +18,4 @@ export inline bool operator==(const Vertex& lhs, const Vertex& rhs) {
 		&& lhs.texCoords == rhs.texCoords;
 }
 
-export SHIV_FNV_HASH(Vertex)
+export SHIV_FNV_HASH(Vertex);

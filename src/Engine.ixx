@@ -2,7 +2,6 @@ module;
 
 #include <glad/glad.h>
 #include <GLFW/glfw3.h>
-#include <imgui.h>
 #include <spdlog/spdlog.h>
 
 #include <optional>
@@ -16,8 +15,11 @@ import Draw.Scene;
 import Draw.Window;
 import Draw.Timings;
 import Draw.DearImGUI;
+import Draw.NetEngine;
+import Network.Client;
 
 using namespace std;
+using namespace Network;
 
 // Logger
 export SpdLogger EngineLog;
@@ -31,7 +33,7 @@ namespace
 #ifndef NDEBUG
 
 	// This maps opengl debug enums to their names, used by the error callback.
-	static const std::unordered_map<GLenum, const char*> OpenGLDebugTranslations{ {
+	const std::unordered_map<GLenum, const char*> OpenGLDebugTranslations{ {
 
 			// SOURCE
 			{ GL_DEBUG_SOURCE_API, "API" },
@@ -51,7 +53,7 @@ namespace
 
 		} };
 
-	static void ErrorCallbackGL(GLenum Source, GLenum Type, GLuint Id, GLenum Severity, GLsizei Length, const GLchar* Message, const void* UserParam)
+	void ErrorCallbackGL(GLenum Source, GLenum Type, GLuint Id, GLenum Severity, GLsizei Length, const GLchar* Message, const void* UserParam)
 	{
 		constexpr const char* DebugOutput = "{} from {}: {}";
 		static auto EnumStr = [](GLenum e) -> auto {
@@ -132,11 +134,10 @@ export namespace Engine
 
 			// End Frame
 			DearImGUI::EndFrame();
+			Draw::NetEngine::Update();
 			Window::EndFrame();
 
 		}
-
-		SPDLOG_LOGGER_INFO(EngineLog, "Initialized opengl function pointers");
 
 		// Returns the exit code.
 		return s_ExitCode.value_or(EXIT_SUCCESS);

@@ -15,6 +15,7 @@ module;
 
 export module Game.GameField;
 import Draw.Resources;
+import Draw.Render;
 import Draw.Renderer;
 import Draw.Window;
 import Game.ShipInfo;
@@ -30,12 +31,13 @@ using namespace glm;
 constexpr float BorderSize = 0.1F;
 constexpr glm::vec3 UpNormal = glm::vec3(0.0F, 1.0F, 0.0F);
 
-static Model::IndexInfo FieldSqInfo = Model::IndexInfo(0, 6);
-static Model::IndexInfo BackgroundInfo = Model::IndexInfo(6, 12);
+static Render::IndexRange FieldSqInfo { 0, 6 };
+static Render::IndexRange BackgroundInfo { 6, 12 };
 static vec4 BorderColor(1.0F, 1.0F, 1.0F, 1.0F);
 static vec4 OceanColor(0.18F, 0.33F, 1.0F, 1.0F);
 static vec4 CollisionColor(0.75F, 0.1F, 0.1F, 1.0F);
 static vec4 IndirectCollisionColor(0.93F, 0.93F, 0.115F, 1.0F);
+static vec4 DigitalColor(0.19F, 0.75F, 0.25F, 1.0F);
 
 uint32_t vert(std::vector<Vertex>& vertices, std::unordered_map<Vertex, uint32_t>& uniqueCache,
 	const Vertex& vert)
@@ -86,54 +88,53 @@ export class GameField
 public:
 
 	GameField(const GameManager2& manager, GmPlayerField* playerField)
-		: m_width(manager.InternalFieldDimensions.XComponent)
-		, m_height(manager.InternalFieldDimensions.YComponent)
-		, m_model()
-		, m_pipeline(Resources::find<ShaderPipeline>("Cel"))
-		, m_texture(Resources::find<Texture>("Dummy"))
-		, m_gameManager(manager)
-		, m_playerField(playerField)
+		: m_Width(manager.InternalFieldDimensions.XComponent)
+		, m_Height(manager.InternalFieldDimensions.YComponent)
+		, m_GameFieldMesh()
+		, m_WaterPipeline(Resources::find<Render::ShaderPipeline>("Cel"))
+		, m_WaterTexture(Resources::find<Render::Texture>("Dummy"))
+		, m_GameManager(manager)
+		, m_PlayerField(playerField)
 	{
 
-		assert(m_width != 0 && m_height != 0); // Size is required to be at least 1x1
+		assert(m_Width != 0 && m_Height != 0); // Size is required to be at least 1x1
 
 		for (size_t i = 0; i < ShipTypeCount; i++)
-			m_shipModels[i] = Resources::find<Model>(ShipInfos[i].resName);
+			m_ShipModels[i] = Resources::find<Render::ConstModel>(ShipInfos[i].resName);
 
 		std::vector<Vertex> vertices;
 		std::vector<uint32_t> indices;
-		std::vector<Model::Part> parts;
 		std::unordered_map<Vertex, uint32_t> uniqueCache;
 
 		// Get unscaled bounds
-		auto usBounds = m_width > m_height ? glm::vec2(1.0F, m_height / (float)m_width)
-									       : glm::vec2(m_width / (float)m_height, 1.0F);
-		float usSquareSize = usBounds.x / (float)m_width; // Get unscaled square
+		auto usBounds = m_Width > m_Height ? glm::vec2(1.0F, m_Height / (float)m_Width)
+									       : glm::vec2(m_Width / (float)m_Height, 1.0F);
+		float usSquareSize = usBounds.x / (float)m_Width; // Get unscaled square
 		float usBorderAxis = usSquareSize * BorderSize; // Get unscaled border size at an axis in a square
-		float scale = (std::max(m_width, m_height) * usSquareSize + usBorderAxis) / 1.0F; // Get scale value
+		float scale = (std::max(m_Width, m_Height) * usSquareSize + usBorderAxis) / 1.0F; // Get scale value
 		float borderSize = usBorderAxis / 2.0F / scale; // Scale border, divide by two to get the border for an edge.
-		m_sqaureSize = usSquareSize / scale; // Scale square size
+		m_SqaureSize = usSquareSize / scale; // Scale square size
 		constexpr float edge = 0.5F;
 
 		// Create square model
-		appendSquare(m_sqaureSize / 2.0F - borderSize, borderSize - m_sqaureSize / 2.0F,
-			         borderSize - m_sqaureSize / 2.0F, m_sqaureSize / 2.0F - borderSize,
+		appendSquare(m_SqaureSize / 2.0F - borderSize, borderSize - m_SqaureSize / 2.0F,
+			         borderSize - m_SqaureSize / 2.0F, m_SqaureSize / 2.0F - borderSize,
 				     vertices, indices, uniqueCache);
 
 		// Create outer background model
 		glm::vec2 topLeftPos;
-		if (m_width < m_height)
+		if (m_Width < m_Height)
 		{
-			float half = m_width * m_sqaureSize / 2.0F + borderSize;
+			float half = m_Width * m_SqaureSize / 2.0F + borderSize;
 			topLeftPos = glm::vec2(half, 0.5F);
 			appendSquare(-edge, edge, edge, half,
 				vertices, indices, uniqueCache);
 			appendSquare(-edge, edge, -half, -edge,
 				vertices, indices, uniqueCache);
 		}
-		else if (m_height < m_width)
+		else if (m_Height < m_Width)
 		{
-			float half = m_height * m_sqaureSize / 2.0F + borderSize;
+			float half = m_Height * m_SqaureSize / 2.0F + borderSize;
 			topLeftPos = glm::vec2(0.5F, half);
 			appendSquare(-edge, -half, edge, -edge,
 				vertices, indices, uniqueCache);
@@ -146,13 +147,13 @@ public:
 		}
 
 		// Setup top-left position
-		m_topLeftPos = glm::vec2(
+		m_TopLeftPos = glm::vec2(
 		    borderSize - topLeftPos.x,
 			topLeftPos.y - borderSize
 		);
 
 		// Setup border info: offset
-		m_borderInfo.offset = indices.size();
+		m_BorderRange.offset = indices.size();
 
 		// Generate top and down bars
 		appendSquare(2.0F * borderSize - topLeftPos.y, -topLeftPos.y, -topLeftPos.x, topLeftPos.x,
@@ -161,89 +162,90 @@ public:
 			vertices, indices, uniqueCache);
 
 		// Generate vertical bars
-		for (uint32_t i = 0; i <= m_width; i++)
+		for (uint32_t i = 0; i <= m_Width; i++)
 		{
 			appendSquare(topLeftPos.y - 2.0F * borderSize,                    // Top
 						 2.0F * borderSize - topLeftPos.y,                    // Bottom
-						 i * m_sqaureSize - topLeftPos.x,                     // Left
-				         i * m_sqaureSize - topLeftPos.x + 2.0F * borderSize, // Right
+						 i * m_SqaureSize - topLeftPos.x,                     // Left
+				         i * m_SqaureSize - topLeftPos.x + 2.0F * borderSize, // Right
 				vertices, indices, uniqueCache);
 		}
 
 		// Generate horizontal bars
-		for (uint32_t y = 1; y < m_height; y++)
-			for (uint32_t x = 0; x < m_width; x++)
+		for (uint32_t y = 1; y < m_Height; y++)
+			for (uint32_t x = 0; x < m_Width; x++)
 			{
-				appendSquare(2.0F * borderSize - topLeftPos.y + y * m_sqaureSize,  // Top
-					         -topLeftPos.y + y * m_sqaureSize,                     // Bottom
-						     -topLeftPos.x + x * m_sqaureSize + 2.0F * borderSize, // Left
-					         -topLeftPos.x + (x + 1) * m_sqaureSize,               // Right
+				appendSquare(2.0F * borderSize - topLeftPos.y + y * m_SqaureSize,  // Top
+					         -topLeftPos.y + y * m_SqaureSize,                     // Bottom
+						     -topLeftPos.x + x * m_SqaureSize + 2.0F * borderSize, // Left
+					         -topLeftPos.x + (x + 1) * m_SqaureSize,               // Right
 					vertices, indices, uniqueCache);
 			}
 
 		// Setup border info: size
-		m_borderInfo.size = indices.size() - m_borderInfo.offset;
+		m_BorderRange.size = indices.size() - m_BorderRange.offset;
 
 		// Setup per instance data
-		m_fieldSquareTransforms = new glm::mat4[m_width * m_height];
-		setTransform(glm::mat4(1.0F));
+		m_FieldSquareTransforms = new glm::mat4[m_Width * m_Height];
+		SetTransform(glm::mat4(1.0F));
 
 		// Upload model
-		m_model = Model(vertices, indices, parts);
+		m_GameFieldMesh = Render::ConstMesh({ vertices }, { indices });
 
 		// Calculate ship scaling
-		m_shipScaleValue = m_sqaureSize / 10.0F;
-		m_shipScale = glm::scale(glm::mat4(1.0F), glm::vec3(m_shipScaleValue, m_shipScaleValue, m_shipScaleValue));
+		float ShipScaleValue = m_SqaureSize / 10.0F;
+		m_ShipScale = glm::scale(glm::mat4(1.0F), glm::vec3(ShipScaleValue, ShipScaleValue, ShipScaleValue));
 
 	}
 
 	~GameField()
 	{
-		delete[] m_fieldSquareTransforms;
+		delete[] m_FieldSquareTransforms;
+		GameManager2::ManualReset();
 	}
 
-	void setTransform(glm::mat4 transform)
+	void SetTransform(glm::mat4 transform)
 	{
-		m_transform = transform;
+		m_Transform = transform;
 		size_t i = 0;
-		for (uint32_t y = 0; y < m_height; y++)
-			for (uint32_t x = 0; x < m_width; x++, i++)
-				m_fieldSquareTransforms[i] = CalcTransform({ x + 0.5F, y + 0.5F });
+		for (uint32_t y = 0; y < m_Height; y++)
+			for (uint32_t x = 0; x < m_Width; x++, i++)
+				m_FieldSquareTransforms[i] = CalcTransform({ x + 0.5F, y + 0.5F });
 	}
 
 	size_t size() const noexcept
 	{
-		return m_width * m_height;
+		return m_Width * m_Height;
 	}
 
 	size_t index(uint32_t x, uint32_t y) const noexcept
 	{
-		return m_width * y + x;
+		return m_Width * y + x;
 	}
 
 	void DrawBackground(SceneRenderer& renderer)
 	{
-		Material material
+		Render::Material material
 		{
-			.pipeline = m_pipeline,
-			.texture = m_texture
+			.Pipeline = m_WaterPipeline,
+			.Texture = m_WaterTexture
 		};
 
 		// Render border
-		material.color_tilt = BorderColor;
-		renderer.draw(m_transform, &m_model, m_borderInfo, material);
+		material.ColorTilt = BorderColor;
+		renderer.Draw(m_Transform, m_GameFieldMesh.VertexArray(), m_BorderRange, material);
 
 		// Render background
-		if (m_width != m_height)
+		if (m_Width != m_Height)
 		{
-			material.color_tilt = OceanColor;
-			renderer.draw(m_transform, &m_model, BackgroundInfo, material);
+			material.ColorTilt = OceanColor;
+			renderer.Draw(m_Transform, m_GameFieldMesh.VertexArray(), BackgroundInfo, material);
 		}
 	}
 
 	void DrawPlacedShips(SceneRenderer& renderer)
 	{
-		auto shipStates = m_playerField->GetShipStateList();
+		auto shipStates = m_PlayerField->GetShipStateList();
 		for (auto& shipState : shipStates)
 		{
 			auto [type, pos] = DrawCastPos(shipState);
@@ -253,25 +255,41 @@ public:
 
 	void DrawSquares(SceneRenderer& renderer, auto colorGetter)
 	{
-		Material material
+		Render::Material material
 		{
-			.pipeline = m_pipeline,
-			.texture = m_texture
+			.Pipeline = m_WaterPipeline,
+			.Texture = m_WaterTexture
 		};
 
 		size_t i = 0;
-		for (uint8_t y = 0; y < m_height; y++)
-			for (uint8_t x = 0; x < m_width; x++, i++)
+		for (uint8_t y = 0; y < m_Height; y++)
+			for (uint8_t x = 0; x < m_Width; x++, i++)
 			{
-				material.color_tilt = colorGetter(x, y);
-				renderer.draw(m_fieldSquareTransforms[i],
-					&m_model, FieldSqInfo, material);
+				material.ColorTilt = colorGetter(x, y);
+				renderer.Draw(m_FieldSquareTransforms[i],
+					m_GameFieldMesh.VertexArray(), FieldSqInfo, material);
 			}
 	}
 
 	void DrawShip(SceneRenderer& renderer, ShipType type, ShipPosition pos)
 	{
-		renderer.draw(CalcTransform(pos.position) * m_shipScale * ShipRotations[pos.direction], m_shipModels[type]);
+		renderer.Draw(CalcTransform(pos.position) * m_ShipScale * ShipRotations[pos.direction], m_ShipModels[type]);
+	}
+
+	// Enemy
+	//-------
+
+	void Enemy_DrawBackground(SceneRenderer& renderer)
+	{
+
+		Render::Material InputMaterial
+		{
+			.Pipeline = m_WaterPipeline,
+			.Texture = m_WaterTexture,
+			.ColorTilt = DigitalColor
+		};
+
+		renderer.Draw(glm::mat4(1.0F), m_GameFieldMesh.VertexArray(), m_BorderRange, InputMaterial);
 	}
 
 	// Setup phase
@@ -302,7 +320,7 @@ public:
 
 		// Get rendering variables
 		auto selected = GetCursorPos(renderer);
-		if (selected.x < 0.0F || selected.x > m_width || selected.y < 0.0F || selected.y > m_height)
+		if (selected.x < 0.0F || selected.x > m_Width || selected.y < 0.0F || selected.y > m_Height)
 			return; // Don't run if cursor is out of bounds.
 		auto pos = GetShipPos(selected, type);
 		
@@ -313,9 +331,13 @@ public:
 
 		// Probe the state before placing the ship
 		// and place it if no invalid states are returned.
-		auto result = m_playerField->ProbeShipPlacement(shipClass, shipOrientation, shipPosition);
+		auto result = m_PlayerField->ProbeShipPlacement(shipClass, shipOrientation, shipPosition);
 		if (result.empty())
-			m_playerField->PlaceShipBypassSecurityChecks(shipClass, shipOrientation, shipPosition);
+		{
+			m_PlayerField->PlaceShipBypassSecurityChecks(shipClass, shipOrientation, shipPosition);
+			m_LastProbedShipClass = (ShipClass) -1; // Invalidate probed data
+		}
+			
 	}
 
 	void SetupPhase_PreviewPlacement(SceneRenderer& renderer, ShipType type)
@@ -345,7 +367,7 @@ public:
 		m_LastProbedPoint = shipPosition;
 
 		// Probe the ship placement with these variables
-		auto result = m_playerField->ProbeShipPlacement(shipClass, shipOrientation, shipPosition);
+		auto result = m_PlayerField->ProbeShipPlacement(shipClass, shipOrientation, shipPosition);
 
 		// Clear state
 		m_InvalidPlacementSquares.clear();
@@ -376,16 +398,16 @@ public:
 
 		// Calculate top left & top right corner position in the opengl canvas
 		auto& ubo = renderer.ubo();
-		vec2 topLeft = ubo.projMtx * ubo.viewMtx * m_transform * vec4(
-			m_topLeftPos.y,
+		vec2 topLeft = ubo.projMtx * ubo.viewMtx * m_Transform * vec4(
+			m_TopLeftPos.y,
 			0.0F,
-			m_topLeftPos.x,
+			m_TopLeftPos.x,
 			1.0F
 		);
-		vec2 botRight = ubo.projMtx * ubo.viewMtx * m_transform * vec4(
-			m_topLeftPos.y - (m_height * m_sqaureSize),
+		vec2 botRight = ubo.projMtx * ubo.viewMtx * m_Transform * vec4(
+			m_TopLeftPos.y - (m_Height * m_SqaureSize),
 			0.0F,
-			m_topLeftPos.x + (m_width * m_sqaureSize),
+			m_TopLeftPos.x + (m_Width * m_SqaureSize),
 			1.0F
 		);
 
@@ -404,7 +426,7 @@ public:
 		));
 
 		// Calculate size of squares in the opengl canvas
-		auto sqSize = fieldSize / vec2(m_width, m_height);
+		auto sqSize = fieldSize / vec2(m_Width, m_Height);
 
 		// Calculate cursor position with (0;0) being the top-left corner
 		auto cursorPosGLTL = vec2(
@@ -430,7 +452,7 @@ public:
 
 		// Get mouse location (without floating point)
 		auto flooredPosition = floor(pos);
-		vec2 limits{ m_width, m_height };
+		vec2 limits{ m_Width, m_Height };
 
 		// Get ship direction
 		auto pointerTarget = clamp(
@@ -494,40 +516,39 @@ public:
 
 	mat4 CalcTransform(const vec2& pos, float height = 0.0F) const
 	{
-		return translate(m_transform, vec3(
-			m_topLeftPos.y - pos.y * m_sqaureSize,
+		return translate(m_Transform, vec3(
+			m_TopLeftPos.y - pos.y * m_SqaureSize,
 			height,
-			m_topLeftPos.x + pos.x * m_sqaureSize)
+			m_TopLeftPos.x + pos.x * m_SqaureSize)
 		);
 	}
 
 private:
 
 	// Info
-	uint8_t m_width, m_height;
-	mat4 m_transform;
+	uint8_t m_Width, m_Height;
+	mat4 m_Transform;
 	
 	// The created model
-	Model m_model;
+	Render::ConstMesh m_GameFieldMesh;
 
 	// Common material data
-	ShaderPipeline* m_pipeline;
-	Texture* m_texture;
+	Render::ShaderPipeline* m_WaterPipeline;
+	Render::Texture* m_WaterTexture;
 
 	// Field square data for each field
-	mat4* m_fieldSquareTransforms;
+	mat4* m_FieldSquareTransforms;
 
 	// Field data required for translation
-	vec2 m_topLeftPos;
-	float m_sqaureSize;
+	vec2 m_TopLeftPos;
+	float m_SqaureSize;
 
 	// Border info
-	Model::IndexInfo m_borderInfo;
+	Render::IndexRange m_BorderRange;
 
 	// Data for rendering ships
-	float m_shipScaleValue;
-	mat4 m_shipScale;
-	Model* m_shipModels[ShipTypeCount];
+	mat4 m_ShipScale;
+	Render::ConstModel* m_ShipModels[ShipTypeCount];
 	
 	// Ship collision
 	ShipClass m_LastProbedShipClass;
@@ -536,7 +557,7 @@ private:
 	unordered_map<u8vec2, GmPlayerField::PlayFieldStatus> m_InvalidPlacementSquares { };
 
 	// Game manager
-	const GameManager2& m_gameManager;
-	GmPlayerField* m_playerField;
+	const GameManager2& m_GameManager;
+	GmPlayerField* m_PlayerField;
 
 };

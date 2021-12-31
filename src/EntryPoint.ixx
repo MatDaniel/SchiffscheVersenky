@@ -27,6 +27,7 @@ import Draw.Engine;
 import Draw.Resources;
 import Draw.Scene;
 import Draw.DearImGUI;
+import Draw.NetEngine;
 import Scenes.Menu;
 
 void GmManagerUnitTests() {
@@ -85,6 +86,7 @@ export int main(
 		EngineLog = spdlog::stdout_color_st("Engine");
 		WindowLog = spdlog::stdout_color_st("Window");
 		DearImGUILog = spdlog::stdout_color_st("ImGUI");
+		ResourceLog = spdlog::stdout_color_st("Resource");
 		
 		spdlog::set_pattern(SPDLOG_SMALL_PATTERN);
 		spdlog::set_level(spdlog::level::debug);
@@ -155,43 +157,6 @@ export int main(
 
 		case APPLICATION_IS_CLIENT: {
 
-			// Parse server specific command line arguments
-			auto ServerAddress = DefaultServerAddress;
-			auto PortNumber = DefaultPortNumber;
-			IF_MINIMUM_PASSED_ARGUMENTS(1)
-				PortNumber = DEREF_ARGUMENT_AT_INDEX(0);
-			IF_MINIMUM_PASSED_ARGUMENTS(2)
-				ServerAddress = DEREF_ARGUMENT_AT_INDEX(1);
-
-			// pretty much all game related code should go here
-			auto& ServerObject = Network::Client::NetworkManager2::CreateObject(
-				ServerAddress,
-				PortNumber);
-
-			for (;;) {
-
-				::Client::ManagmentDispatchState State{};
-
-
-				auto ResponseOption = ServerObject.ExecuteNetworkRequestHandlerWithCallback(
-					::Client::ManagementDispatchRoutine,
-					(void*)&State);
-
-				if (ResponseOption < 0)
-					break;
-
-				if (State.StateReady) {
-
-					State.StateReady = false;
-					GameManager2::CreateObject(State.InternalFieldDimensions, State.NumberOFShipsPerType);
-				}
-
-				Sleep(1000);
-			}
-
-			__debugbreak(); 
-
-
 			// Unit test code for client, we will merge this together later (aka the network io into the engine)
 			{
 				// Initialize the window
@@ -209,7 +174,7 @@ export int main(
 				DearImGUI::Init();
 
 				// Initialize the resources
-				Resources::Init();
+				Draw::Resources::Init();
 
 				// Set entry scene
 				Scene::Load(std::make_unique<MenuScene>());
@@ -219,10 +184,9 @@ export int main(
 
 				// Clean up
 				Scene::CleanUp();
-				Resources::CleanUp();
+				Draw::Resources::CleanUp();
 				DearImGUI::CleanUp();
 				Window::CleanUp();
-
 
 				// Exit
 				SPDLOG_LOGGER_INFO(LayerLog, "Client successfully terminated");

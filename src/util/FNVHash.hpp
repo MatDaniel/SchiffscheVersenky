@@ -21,4 +21,4 @@ struct std::hash<Type> \
     { \
         return fnFNV((const uint8_t*)&val, (const uint8_t*)&val + 1); \
     } \
-};
+}
