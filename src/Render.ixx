@@ -841,7 +841,16 @@ namespace Draw::Render
 
 		~FrameBuffer()
 		{
-			glDeleteFramebuffers(1, &m_Id);
+			// The `if` prevents a segmentation fault error
+			// for the case, the client shutdowns too early,
+			// before he initialized opengl pointers or
+			// the server shutdowns. The default FBO
+			// is getting destroyed, as it's static.
+			// Though it's 0 and actually nothing gets
+			// destroyed here. Still, he tries to access
+			// the function.
+			if (m_Id)
+				glDeleteFramebuffers(1, &m_Id);
 		}
 
 		FrameBuffer(FrameBuffer&& Other) noexcept
