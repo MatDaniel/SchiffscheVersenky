@@ -43,9 +43,6 @@ public:
 
 		/* Setup scene rendering */
 
-		// Use default frame buffer for the whole scene
-		Window::Properties::FrameBuffer.Select();
-
 		// Set view and projection properties.
 		auto& info = m_Renderer.info();
 		info.camera = {
@@ -69,15 +66,19 @@ public:
 	void OnDraw() override
 	{
 
+		// Prepare framebuffer for rendering
+		Window::Properties::FrameBuffer.Select();
 		glClearColor(0.8F, 0.2F, 0.1F, 1.0F);
 		glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
+		// Render game field
 		m_GameField->DrawBackground(m_Renderer);
 		m_GameField->DrawPlacedShips(m_Renderer);
 		m_GameField->SetupPhase_PreviewPlacement(m_Renderer, (ShipType)m_SelectedType);
 		m_GameField->SetupPhase_DrawSquares(m_Renderer);
 		m_Renderer.render();
 
+		// Render GUI
 		ImGui::SetNextWindowPos(ImVec2 { 600, 10 }, ImGuiCond_Once, ImVec2 { 0, 0 });
 		ImGui::Begin("GameField Debug", nullptr, ImGuiWindowFlags_NoSavedSettings);
 		ImGui::Combo("Ship Type", &m_SelectedType, [](void* data, int idx, const char** out) -> bool {

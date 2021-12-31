@@ -478,12 +478,7 @@ export namespace Draw::Resources
 
 		// Texture
 		constexpr char DummyPixels[3] { 0, 0, 0 };
-		auto DummyLayout = Render::TextureLayout {
-			.Channels = 3,
-			.Width = 1,
-			.Height = 1,
-			.Pixels = &DummyPixels
-		}.WrapRepeat().FilterNearest();
+		auto DummyLayout = Render::TextureLayout(1, 1, 3, &DummyPixels).WrapRepeat().FilterNearest();
 		auto* DummyTexture = Resources::emplace<Render::Texture>("Dummy", DummyLayout);
 
 		// Materials

@@ -530,14 +530,31 @@ namespace Draw::Render
 
 	}
 
-	export struct TextureLayout {
+	export struct TextureLayout
+	{
+
+		TextureLayout(uint32_t Width,
+			uint32_t Height,
+			uint8_t Channels = 0,
+			const void* Pixels = nullptr)
+			: Channels(Channels)
+			, Width(Width)
+			, Height(Height)
+			, Pixels(Pixels)
+		{
+		}
+
+		TextureLayout()
+			: TextureLayout(0, 0, 0)
+		{
+		}
 
 		// Color Channels
-		uint8_t Channels { 0 };
+		uint8_t Channels;
 
 		// Image size
-		uint32_t Width { 0 };
-		uint32_t Height { 0 };
+		uint32_t Width;
+		uint32_t Height;
 
 		// Texture Wrap
 		GLenum WrapS;
@@ -577,7 +594,7 @@ namespace Draw::Render
 		}
 
 		// Pixel Data
-		const void* Pixels{ nullptr };
+		const void* Pixels;
 
 	};
 
