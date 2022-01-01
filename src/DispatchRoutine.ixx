@@ -382,12 +382,18 @@ export namespace Client {
 			}
 
 			default:
-				break;
+				SPDLOG_LOGGER_CRITICAL(LayerLog, "Received untreated ioctl: {}",
+					NetworkRequest.IoControlPacketData->ControlCode);
+
+				NetworkRequest.CompleteIoRequest(NwRequestPacket::STATUS_REQUEST_NOT_HANDLED);
 			}
 			break;
 
+		default:
+			SPDLOG_LOGGER_CRITICAL(LayerLog, "Received untreated request with ioctl: {}",
+				NetworkRequest.IoControlCode);
 
-
+			NetworkRequest.CompleteIoRequest(NwRequestPacket::STATUS_REQUEST_NOT_HANDLED);
 		}
 	}
 }

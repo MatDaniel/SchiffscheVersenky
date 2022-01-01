@@ -5,6 +5,10 @@ module;
 #include "BattleShip.h"
 #include <atomic>
 #include <utility>
+#include <queue>
+#include <variant>
+#include <type_traits>
+#include <mutex>
 
 export module LayerBase;
 using namespace std;
@@ -20,6 +24,7 @@ struct EnableMakeUnique : public T {
 };
 export template<typename T>
 class MagicInstanceManagerBase {
+	friend T;
 public:
 	template<typename... Args>
 	static T& CreateObject(Args&&... Parameters) {
@@ -75,7 +80,6 @@ export namespace Network {
 			INCOMING_CONNECTION,
 		} IoControlCode;
 	
-
 		enum NwRequestStatus {            // Describes the current state of this network request packet,
 								          // the callback has to set it correctly depending on what it did with the request
 			INVALID_STATUS = -2000,       // This Status is invalid, gets counted as a failure
@@ -83,23 +87,22 @@ export namespace Network {
 			STATUS_REQUEST_ERROR,         // An undefined error occurred during handling of the NRP
 			STATUS_SOCKET_ERROR,          // An socket error occurred during the NRP, (consider disconnecting)
 			STATUS_REQUEST_NOT_HANDLED,   // Request was not completed and returned to the dispatcher
+			STATUS_SOCKET_DISCONNECTED,   // The socket circuit was terminated, shutting down connection
 
 			STATUS_REQUEST_COMPLETED = 0, // Indicates success and that the request was correctly handled
 			STATUS_LIST_MODIFIED,         // same as STATUS_REQUEST_COMPLETED, 
 			                              // but indicates that the socket descriptor list was modified
 			STATUS_REQUEST_IGNORED,       // Request was completed but ignored, also fine
 			STATUS_WORK_PENDING,          // Request is currently completing asynchronously
-			STATUS_NO_INPUT_OUTPUT        // No processing applied and or applyable
+			STATUS_NO_INPUT_OUTPUT,       // No processing applied and or applyable
+			STATUS_CONNECTED,             // A connection was successfully established
 		} IoRequestStatus;
 
 		virtual NwRequestStatus CompleteIoRequest(
 			NwRequestStatus RequestStatus
 		) {
-			TRACE_FUNTION_PROTO;
-
-			return IoRequestStatus = RequestStatus;
+			TRACE_FUNTION_PROTO; return IoRequestStatus = RequestStatus;
 		}
-
 	};
 
 
@@ -267,7 +270,9 @@ export namespace Network {
 			ShipControlStatus ShipControlRaisedStatus;
 		};
 	};
-
+	static_assert(is_trivially_copyable_v<ShipSockControl>,
+		"ShipSockControl is a non trivially copyable type, "
+		"cannot stream it as raw/pod data");
 
 
 	class WsaNetworkBase {

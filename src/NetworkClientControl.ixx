@@ -7,6 +7,7 @@ module;
 #include "BattleShip.h"
 #include <memory>
 #include <queue>
+#include <variant>
 
 export module Network.Client;
 export import LayerBase;
@@ -43,56 +44,39 @@ export namespace Network::Client {
 	};
 
 
+
+
 	class NetworkManager2
 		: public MagicInstanceManagerBase<NetworkManager2>,
 		  private WsaNetworkBase {
 		friend class MagicInstanceManagerBase<NetworkManager2>;
+
+		// Number of bytes to cache at least in order to parse stream
+		static constexpr size_t MinimumSizeRead =
+			offsetof(ShipSockControl, SizeOfThisStruct) +
+			sizeof(ShipSockControl::SizeOfThisStruct);
+		struct PacketQueueEntry {              // A Entry in the packet queue of data to be send later
+			unique_ptr<char[]> DataPacket;     // The actual data or rest of the data to send
+			size_t             SizeOfDatapack; // The length of data stored to be send
+			size_t             WriteOffset;    // The starting point from where send should start reading
+		};
+
 	public:
 		typedef void(*MajorFunction)(        // this has to handle the networking requests being both capable of reading and sending requests
 			NetworkManager2* NetworkDevice,  // a pointer to the NetWorkIoController responsible of said request packet
 			NwRequestPacket& NetworkRequest, // a reference to a network request packet describing the current request
 			void*            UserContext     // A pointer to caller defined data thats forwarded to the callback in every call, could be the GameManager class or whatever
 			);
-		struct PacketQueueEntry {          // A Entry in the packet queue of data to be send later
-			unique_ptr<char[]> DataPacket; // The actual data or rest of the data to send
-			size_t SizeOfDatapack;         // The length of data to be send stored
-		};
 
 		~NetworkManager2() {
-			TRACE_FUNTION_PROTO; SPDLOG_LOGGER_INFO(NetworkLog, "Client network manager destroyed, cleaning up sockets");
-		}
-
-
-
-		NwRequestPacket::NwRequestStatus
-		RequestDispatchAndReturn(              // Dispatches and catches a network request
-			MajorFunction    IoServiceRoutine, // The passed routine responsible for handling
-			void*            UserContext,      // The passed user context
-			NwRequestPacket& NetworkRequest    // A NRP to extend and dispatch
-		) {
 			TRACE_FUNTION_PROTO;
 
-			// Dispatch request and checkout
-			try {
-				IoServiceRoutine(this,
-					NetworkRequest,
-					UserContext);
-
-				// If execution resumes here the packet was not completed, server has to terminate,
-				// as the state of several components could now be indeterminate 
-				constexpr auto ErrorMessage = "The network request returned, it was not completed";
-				SPDLOG_LOGGER_CRITICAL(NetworkLog, ErrorMessage);
-				throw runtime_error(ErrorMessage);
-			}
-			catch (const NwRequestPacket* CompletedPacket) {
-
-				// Check if allocated packet is the same as returned
-				if (CompletedPacket != &NetworkRequest)
-					return SPDLOG_LOGGER_ERROR(NetworkLog, "The completed packet {} doesnt match the send package signature",
-						(void*)CompletedPacket),
-					NwRequestPacket::STATUS_REQUEST_ERROR;
-				return CompletedPacket->IoRequestStatus;
-			}
+			// Close socket and cleanup
+			auto Result = closesocket(RemoteServer);
+			if (Result == SOCKET_ERROR)
+				SPDLOG_LOGGER_ERROR(NetworkLog, "closesocket() failed to close the remote socket with {}",
+					WSAGetLastError());
+			SPDLOG_LOGGER_INFO(NetworkLog, "Client network manager destroyed");
 		}
 
 		NwRequestPacket::NwRequestStatus
@@ -131,21 +115,26 @@ export namespace Network::Client {
 			default:
 				// Check except fd_set and report oob data / failed connect attempt
 				if (DescriptorTable[2].fd_count) {
-					if (!SocketAttached)
-						return SPDLOG_LOGGER_ERROR(NetworkLog, "Failed to connect to sever {}, refused connection",
-							RemoteServer),
-							NwRequestPacket::STATUS_FAILED_TO_CONNECT;
+					
+					// Check if we are not connected yet, if so the connection attempt failed
+					if (!SocketAttached) {
+
+						// Process cleanup and notify caller of failed connect attempt,
+						// Same as with DispatchDisconnectService, this will destroy the current object,
+						// therefore invalidate the object and all references/pointers to it
+						// DO NOT USE THIS OBJECT AFTER RECEIVING THIS STATUS
+						SPDLOG_LOGGER_ERROR(NetworkLog, "Failed to connect to remote {}, refused connection",
+							RemoteServer);
+						this->ManualReset();
+						return NwRequestPacket::STATUS_FAILED_TO_CONNECT;
+					}
 
 					// This can be happily ignored cause I dont use OOB data :)
 					SPDLOG_LOGGER_DEBUG(NetworkLog, "Out of boud, data is ready for read");
 				}
 
-
-				//
-				// Now we take care of the main processing
-				//
-
-
+				
+				
 				auto BuildNetworkRequestPacket = [this](         // Helper function for building NRP's
 					NwRequestPacket::NwServiceCtl IoControlCode, //
 					ShipSockControl*              InternalPacket //
@@ -157,125 +146,165 @@ export namespace Network::Client {
 						return NetworkRequest;
 				};
 
-				// Check for writeability / connected state
-				if (DescriptorTable[1].fd_count) {
-					
-					// Check if multiplexer is attached
-					if (!SocketAttached) {
-
-						// This scope handles successful connects
-						SPDLOG_LOGGER_INFO(NetworkLog, "Socket {} succesfully connected to remote",
-							RemoteServer);
-						SocketAttached = true;
-
-						// we do not need to notify the engine yet, that will happing implicitly,
-						// as the server sends the first 2 mandatory data packages
-						return NwRequestPacket::STATUS_NO_INPUT_OUTPUT;
-					}
-
-					// The remote socket is ready to take data againg, check if we have anything left to send
-					if (PacketQueue.size()) {
-
-						// The socket is ready to handle and send data
-						// Evil variable shadowing btw.
-						auto& InternalPacketEntry = PacketQueue.front();
-						auto Result = send(RemoteServer,
-							InternalPacketEntry.DataPacket.get(),
-							InternalPacketEntry.SizeOfDatapack, 0);
-
-						switch (Result) {
-						case SOCKET_ERROR:
-							switch (auto LastError = WSAGetLastError()) {
-							case WSAEWOULDBLOCK:
-								SPDLOG_LOGGER_WARN(NetworkLog, "Could not send delayed packet, will retry next time");
-								break;
-
-							default:
-								SPDLOG_LOGGER_ERROR(NetworkLog, "send() failed to properly transmit delayed package");
-								return NwRequestPacket::STATUS_SOCKET_ERROR;
-							}
-							break;
-
-						default:
-							SPDLOG_LOGGER_INFO(NetworkLog, "Queued package was transmited");
-							if (Result < InternalPacketEntry.SizeOfDatapack)
-								SPDLOG_LOGGER_WARN(NetworkLog, "The message was not fully send {}<{}",
-									Result, InternalPacketEntry.SizeOfDatapack);
-							PacketQueue.pop();
-						}
-					}
-				}
-
 				// Check for readability and dispatch appropriate handling
 				if (DescriptorTable[0].fd_count) {
-					
-					// Allocate packet buffer and loop recv() until all packets were read and dispatched
-					SPDLOG_LOGGER_TRACE(NetworkLog, "Checking socket {} for messages to process",
-						RemoteServer);
-					auto PacketBuffer = make_unique<char[]>(PACKET_BUFFER_SIZE);
-					for (;;) {
-						auto Result = recv(RemoteServer,
-							PacketBuffer.get(),
-							PACKET_BUFFER_SIZE, 0);
 
-						// recv result control
+					// Read all data available into the buffer by appending it to everything comissioned
+					bool DataExceededBufferReadAgain = false;
+					do {
+						auto Result = recv(RemoteServer,
+							DataReceiverStream.get() + ReceiverStreamLength,
+							PACKET_BUFFER_SIZE - ReceiverStreamLength, 0);
+						SPDLOG_LOGGER_DEBUG(NetworkLog, "recv() in dispatch returned {}:{}",
+							Result, WSAGetLastError());
+					
+						// Handle recv() response and dispatch proper handling
 						switch (Result) {
 						case SOCKET_ERROR:
-
 							// recv error handler (this may lead to the desired path of WSAWOULDBLOCK)
 							switch (auto SocketErrorCode = WSAGetLastError()) {
 							case WSAEWOULDBLOCK:
+								// Force read loop to stop if we ended up again when no data is available anymore
+								DataExceededBufferReadAgain = false; 
 								SPDLOG_LOGGER_TRACE(NetworkLog, "No (more) request to handle");
-								return NwRequestPacket::STATUS_NO_INPUT_OUTPUT;
-							
-							case WSAECONNRESET:
-								SPDLOG_LOGGER_ERROR(NetworkLog, "Connection reset, closed socket {}", 
-									RemoteServer);
-								closesocket(RemoteServer);
-								return NwRequestPacket::STATUS_SOCKET_ERROR;
+								break;
 
 							default:
 								SPDLOG_LOGGER_CRITICAL(NetworkLog, "unhandled recv status {}",
 									SocketErrorCode);
-								return NwRequestPacket::STATUS_REQUEST_ERROR;
+								DispatchDisconnectService(NetworkServiceRoutine,
+									UserContext);
+								return NwRequestPacket::STATUS_SOCKET_DISCONNECTED;
 							}
 							break;
 
-						// graceful server shutdown and disconnect handling
-						case 0: {
-							
-							// Dispatch disconnect notification
-							auto NetworkRequest = BuildNetworkRequestPacket(
-								NwRequestPacket::SOCKET_DISCONNECTED, nullptr);
-							auto IoStatus = RequestDispatchAndReturn(NetworkServiceRoutine,
-								UserContext,
-								NetworkRequest);
-							if (IoStatus < 0)
-								SPDLOG_LOGGER_ERROR(NetworkLog, "Callback did not handle disconnect"),
+						case 0:
+							// Server disconnected gracefully, dispatch disconnect and shutdown
 							SPDLOG_LOGGER_INFO(NetworkLog, "Server disconnected from client");
-							return IoStatus;
-						}
+							DispatchDisconnectService(NetworkServiceRoutine,
+								UserContext);
+							return NwRequestPacket::STATUS_SOCKET_DISCONNECTED;
 
-						// Network packet handler dispatch
-						default: {
+						default:
+							// The start of the stream always represents the start of a package
+							auto PackageStreamPointer = (ShipSockControl*)DataReceiverStream.get();
+							ReceiverStreamLength += Result;
 							
-							// Get internal packet data and dispatch to callback
-							auto ShipPacket = (ShipSockControl*)PacketBuffer.get();
-							SPDLOG_LOGGER_INFO(NetworkLog, "Received shipsock control command package with ioctl: {}",
-								ShipPacket->ControlCode);
+							// Check if the current buffer has been completely filled and schedule
+							// a new recv() iteration to get the possibly stored data
+							DataExceededBufferReadAgain = false;
+							if (ReceiverStreamLength >= SizeOfReceiverStream) {
 
-							auto NetworkRequest = BuildNetworkRequestPacket(
-								NwRequestPacket::SOCKET_DISCONNECTED, ShipPacket);
-							auto IoStatus = RequestDispatchAndReturn(NetworkServiceRoutine,
-								UserContext,
-								NetworkRequest);
-							if (IoStatus < 0)
-								return SPDLOG_LOGGER_ERROR(NetworkLog, "Callback failed to handle ship sock control command"),
-									IoStatus;
+								// Schedule recv() stream exceed iteration, this will redo the loop until the recv() buffer
+								// has been fully emptied or something else like a disconnect etc occurs
+								DataExceededBufferReadAgain = true;
+								SPDLOG_LOGGER_INFO(NetworkLog, "The stream was completely filled by recv(), scheduling redo");
+							}
+
+							// Iterate through the current stream until we either reach the end or cannot
+							// dispatch incomplete packages anymore
+							while (ReceiverStreamLength >= MinimumSizeRead &&
+								PackageStreamPointer->SizeOfThisStruct < ReceiverStreamLength) {
+
+								// Dispatch message as we know the current contained buffer content is large enough,
+								// to contain at least one ship control packet, therefore it can be directly referenced
+								auto NetworkRequest = BuildNetworkRequestPacket(
+									NwRequestPacket::INCOMING_PACKET,
+									PackageStreamPointer);
+								auto IoStatus = RequestDispatchAndReturn(NetworkServiceRoutine,
+									UserContext,
+									NetworkRequest);
+
+								// Check for dispatch errors, if any we terminate the session and notify the caller
+								if (IoStatus < 0) {
+
+									// Dispatch disconnect service routine and notify caller
+									SPDLOG_LOGGER_CRITICAL(NetworkLog, "Callback failed to handle ship sock control command, terminating connection");
+									DispatchDisconnectService(NetworkServiceRoutine,
+										UserContext);
+									return NwRequestPacket::STATUS_SOCKET_DISCONNECTED;
+								}
+									
+								// Update stream iterator states
+								ReceiverStreamLength -= PackageStreamPointer->SizeOfThisStruct;
+								(char*&)PackageStreamPointer += PackageStreamPointer->SizeOfThisStruct;
+							}
+
+							// Move the left over data in package stream back to the start of the stream
+							// This prepares the left over incomplete package for the next dispatch cycle
+							memmove(DataReceiverStream.get(),
+								(void*)PackageStreamPointer,
+								ReceiverStreamLength);
 						}
-						}
-					} 
+					} while (DataExceededBufferReadAgain);					
 				}	
+
+				// Check for writeability / connected state, and dispatch queued data from stream if available
+				if (DescriptorTable[1].fd_count) {
+
+					// The remote socket is ready to take data again, check if we have anything left to send
+					// If the server is not yet attached, the queue wont be able to contain any data,
+					// so its ok to prioritize and check this first
+					if (OutboundPacketQueue.size()) {
+
+						// The socket is ready to handle and send data, send until it doesnt wanna send anymore
+						int32_t Result = 0;
+						do {
+							// Get first queue entry and send actual packet to remote
+							auto& InternalPacketEntry = OutboundPacketQueue.front();
+							Result = send(RemoteServer,
+								InternalPacketEntry.DataPacket.get() +
+									InternalPacketEntry.WriteOffset,
+								InternalPacketEntry.SizeOfDatapack,
+								0);
+							switch (Result) {
+							case SOCKET_ERROR:
+								// Check why we failed, hopefully WOULDBLOCK if any, anything else leads to a disconnect
+								switch (auto LastError = WSAGetLastError()) {
+								case WSAEWOULDBLOCK:
+									SPDLOG_LOGGER_WARN(NetworkLog, "Could not send delayed packet, will retry next time");
+									break;
+
+								default:
+									// Dispatch error and disconnect from remote, this is a destructive call,
+									// it will destroy this object, and invalidate all references to it
+									SPDLOG_LOGGER_ERROR(NetworkLog, "send() failed to properly transmit delayed package");
+									DispatchDisconnectService(NetworkServiceRoutine,
+										UserContext);
+									return NwRequestPacket::STATUS_SOCKET_DISCONNECTED;
+								}
+								break;
+
+							default:
+								// Calculate new package size and check if package still hasnt fully transmitted
+								if (InternalPacketEntry.SizeOfDatapack -= Result) {
+									
+									// Update write offset, and exit the loop to delay sending further
+									InternalPacketEntry.WriteOffset += Result;
+									SPDLOG_LOGGER_WARN(NetworkLog, "The message was not fully send yet ({} bytes left)",
+										InternalPacketEntry.SizeOfDatapack);
+									Result = 0; break;
+								}
+
+								// The package was fully send, remove it from the queue and continue
+								SPDLOG_LOGGER_INFO(NetworkLog, "Queued package {} with {} bytes was transmited",
+									(void*)&InternalPacketEntry,
+									((ShipSockControl*)InternalPacketEntry.DataPacket.get())->SizeOfThisStruct);
+								OutboundPacketQueue.pop();
+							}
+						} while (Result > 0);
+					}
+
+					// We were notified about a write ready state, check if we successfully connected
+					if (!SocketAttached) {
+
+						// Successfully connected to remote, enable this and notify caller
+						SPDLOG_LOGGER_INFO(NetworkLog, "Socket {} succesfully connected to remote",
+							RemoteServer);
+						SocketAttached = true;
+						return NwRequestPacket::STATUS_CONNECTED;
+					}
+				}
 			}
 		}
 
@@ -283,53 +312,30 @@ export namespace Network::Client {
 			TRACE_FUNTION_PROTO; return RemoteServer;
 		}
 
-		int32_t SendShipControlPackageDynamic(    // Sends a package to the connected server 
-			const ShipSockControl& RequestPackage // Package to be send
+		void QueueShipControlPacket(              // Queues a package to be send to the server
+			const ShipSockControl& RequestPackage // The ship control package to be queued
 		) {
 			TRACE_FUNTION_PROTO;
 
-			// get size of package dynamically
-			// send package
-
-			auto PackageSize = sizeof(RequestPackage); // this has to be done properly, skipping it for now
-
-
-			auto Result = send(RemoteServer,
-				(char*)&RequestPackage,
-				PackageSize, 0);
-
-			switch (Result) {
-			case SOCKET_ERROR:
-				switch (auto LastError = WSAGetLastError()) {
-				case WSAEWOULDBLOCK:
-				
-					// Queue the request for delayed handling
-					PacketQueue.emplace(make_unique<char[]>(PackageSize), PackageSize);
-					memcpy(PacketQueue.front().DataPacket.get(),
-						&RequestPackage, PackageSize);
-					SPDLOG_LOGGER_INFO(NetworkLog, "send() wasn't able to complete immediately, request queued for later handling");
-					return 0;
-
-				default:
-					SPDLOG_LOGGER_ERROR(NetworkLog, "untreated socket error from send()");
-					return SOCKET_ERROR;
-				}
-				break;
-
-			default:
-				SPDLOG_LOGGER_INFO(NetworkLog, "package was transmited");
-				if (Result < PackageSize)
-					SPDLOG_LOGGER_WARN(NetworkLog, "The message was not fully send {}<{}",
-						Result, PackageSize);
-				return Result;
-			}
+			// Queue the request for delayed handling, it will be dispatched from the dispatcher
+			auto& QueueEntry = OutboundPacketQueue.emplace(
+				make_unique<char[]>(RequestPackage.SizeOfThisStruct),
+				RequestPackage.SizeOfThisStruct, 0);
+			memcpy(QueueEntry.DataPacket.get(),
+				&RequestPackage,
+				RequestPackage.SizeOfThisStruct);
+			SPDLOG_LOGGER_INFO(NetworkLog, "Ship control packet with ssclt [{}] was scheduled for send()",
+				RequestPackage.ControlCode);
 		}
 
 	private:
 		NetworkManager2(
-			const char* ServerName, // aka ipv4/6 address
-			const char* PortNumber  // the Port Number the server runs on
-		) {
+			const char*  ServerName = DefaultServerAddress, // aka ipv4 address (may add ipv6 support)
+			const char*  PortNumber = DefaultPortNumber,    // the port number the server runs on
+			      size_t SizeOfStream = PACKET_BUFFER_SIZE  // The size of the desired data stream cache
+		) 
+			: DataReceiverStream(make_unique<char[]>(SizeOfStream)),
+			  SizeOfReceiverStream(SizeOfStream) {
 			TRACE_FUNTION_PROTO;
 
 			auto Result = getaddrinfo(ServerName,
@@ -392,7 +398,80 @@ export namespace Network::Client {
 				RemoteServer);
 		}
 
-		queue<PacketQueueEntry> PacketQueue;
+		NwRequestPacket::NwRequestStatus
+		RequestDispatchAndReturn(              // Dispatches and catches a network request
+			MajorFunction    IoServiceRoutine, // The passed routine responsible for handling
+			void*            UserContext,      // The passed user context
+			NwRequestPacket& NetworkRequest    // A NRP to extend and dispatch
+		) {
+			TRACE_FUNTION_PROTO;
+
+			// Dispatch request and checkout
+			SPDLOG_LOGGER_INFO(NetworkLog, "Dispatching NRP with NWCTL [{}]",
+				NetworkRequest.IoControlCode);
+			try {
+				IoServiceRoutine(this,
+					NetworkRequest,
+					UserContext);
+
+				// If execution resumes here the packet was not completed, server has to terminate,
+				// as the state of several components could now be indeterminate 
+				constexpr auto ErrorMessage = "The network request returned, it was not completed";
+				SPDLOG_LOGGER_CRITICAL(NetworkLog, ErrorMessage);
+				throw runtime_error(ErrorMessage);
+			}
+			catch (const NwRequestPacket* CompletedPacket) {
+
+				// Check if allocated packet is the same as returned
+				if (CompletedPacket == &NetworkRequest)
+					return CompletedPacket->IoRequestStatus;
+
+				// If we get there the dispatched NRP is not the one collected, this should be impossible
+				SPDLOG_LOGGER_ERROR(NetworkLog, "The completed packet {} doesnt match the send package signature",
+					(void*)CompletedPacket);
+				throw runtime_error("The completed package doesnt match the dispatched packages signature");
+			}
+		}
+
+		void DispatchDisconnectService(     // Dispatches a disconnect notification and terminates the connection
+			MajorFunction IoServiceRoutine, // The passed routine responsible for handling
+			void*         UserContext       // An associated user context that should be passed along to the routine
+		) {
+			TRACE_FUNTION_PROTO;
+
+			// Build basic disconnect packet
+			NwRequestPacket NetworkRequest{};
+			NetworkRequest.IoControlCode = NwRequestPacket::SOCKET_DISCONNECTED;
+			NetworkRequest.IoRequestStatus = NwRequestPacket::STATUS_REQUEST_NOT_HANDLED;
+
+			// Dispatch disconnect notification to client
+			auto RequestStatus = RequestDispatchAndReturn(
+				IoServiceRoutine,
+				UserContext,
+				NetworkRequest);
+			if (RequestStatus < 0)
+				throw (SPDLOG_LOGGER_CRITICAL(NetworkLog, "YOu fucked up to fuckiung hanle disconnet fucking faggot"),
+					runtime_error("Are you even trying anymore? HOW THE FUCK DID WE END UP HERE"));
+
+			// Schedule ourself for automatic deletion,
+			// THIS IS A SUICIDE MOVE, DO NOT REPLICATE !
+			// Its only possible cause the underlying instance manager
+			// dynamically allocates this and manages the object,
+			// after this call no members are touched 
+			// and all functions up to this point will immediately return.
+			SPDLOG_LOGGER_WARN(NetworkLog, "Warning this object {}(NetworkManager Instance) is being deleted",
+				(void*)this);
+			this->ManualReset();
+		}
+
+
+		// Receiver/sender stream context
+		queue<PacketQueueEntry> OutboundPacketQueue;
+		unique_ptr<char[]>      DataReceiverStream;
+		const size_t            SizeOfReceiverStream;
+		      size_t            ReceiverStreamLength = 0;
+
+		// Network manager internal context
 		SOCKET    RemoteServer = INVALID_SOCKET;
 		bool      SocketAttached = false;
 		addrinfo* ServerInformation = nullptr;
