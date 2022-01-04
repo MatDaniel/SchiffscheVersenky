@@ -15,8 +15,27 @@ using namespace std;
 export SpdLogger NetworkLog;
 
 
+// SOCKET formatter for spdlog/fmt
+export ostream& operator<<(
+	      ostream& Input,
+	const SOCKET&  SocketAsId
+) {
+	TRACE_FUNTION_PROTO;
+	return Input << fmt::format("[{:04x}]",
+		(void*)SocketAsId);
+}
 
 // Magic helpers for weird ass c++ fuckery
+export template<typename T> // Private tag, this allows to create a tag object used to prevent the creation of
+                               // an object from outside of the specified function(s)/class(es)
+class PrivateTag {
+	friend T;
+public:
+	PrivateTag(const PrivateTag&) = default;
+	PrivateTag& operator=(const PrivateTag&) = default;
+private:
+	PrivateTag() = default;
+};
 export template<class T>
 struct EnableMakeUnique : public T {
 	EnableMakeUnique(auto&&... ParametersForward)
@@ -39,15 +58,22 @@ public:
 		return *InstanceObject;
 	}
 	static T& GetInstance() {
-		TRACE_FUNTION_PROTO; return *InstanceObject;
+		TRACE_FUNTION_PROTO;
+
+		// Check if current instance is valid and return reference
+		if (InstanceObject)
+			return *InstanceObject;
+
+		// In case the Instance is invalid this will always throw an error
+		SPDLOG_CRITICAL("Magic instance was invalid, {} was not allowed to call this",
+			_ReturnAddress());
+		throw std::runtime_error("Magic instance was invalid, caller was not allowed to call this");
 	}
 	static T* GetInstancePointer() {
 		TRACE_FUNTION_PROTO; return InstanceObject.get();
 	}
 	static void ManualReset() {
-		TRACE_FUNTION_PROTO;
-
-		InstanceObject.reset();
+		TRACE_FUNTION_PROTO; InstanceObject.reset();
 	}
 
 	// Singleton(const Singleton&) = delete;
@@ -79,7 +105,7 @@ export namespace Network {
 			// unique to server
 			INCOMING_CONNECTION,
 		} IoControlCode;
-	
+
 		enum NwRequestStatus {            // Describes the current state of this network request packet,
 								          // the callback has to set it correctly depending on what it did with the request
 			INVALID_STATUS = -2000,       // This Status is invalid, gets counted as a failure
@@ -88,6 +114,7 @@ export namespace Network {
 			STATUS_SOCKET_ERROR,          // An socket error occurred during the NRP, (consider disconnecting)
 			STATUS_REQUEST_NOT_HANDLED,   // Request was not completed and returned to the dispatcher
 			STATUS_SOCKET_DISCONNECTED,   // The socket circuit was terminated, shutting down connection
+			STATUS_SHUTDOWN,              // The entire manager has to be shutdown, object invalid
 
 			STATUS_REQUEST_COMPLETED = 0, // Indicates success and that the request was correctly handled
 			STATUS_LIST_MODIFIED,         // same as STATUS_REQUEST_COMPLETED, 
@@ -103,8 +130,16 @@ export namespace Network {
 		) {
 			TRACE_FUNTION_PROTO; return IoRequestStatus = RequestStatus;
 		}
-	};
 
+		friend ostream& operator<<(
+			ostream& Input,
+			const NwRequestBase::NwServiceCtl NwCtl
+		) {
+			TRACE_FUNTION_PROTO;
+			return Input << fmt::format("[NWCTL: {}]",
+				(underlying_type_t<decltype(NwCtl)>)NwCtl);
+		}
+	};
 
 	enum ShipClass : uint8_t { // Specifies the type of ship
 							   // is also used as an index into the count array of ShipCount
@@ -128,16 +163,20 @@ export namespace Network {
 	public:
 		static constexpr uint8_t INVALID_COORD = 0xff;
 		bool operator==(const PointComponent&) const = default;
-		
+		friend ostream& operator<<(
+			ostream& Input,
+			const PointComponent& Location
+			) {
+			TRACE_FUNTION_PROTO;
+			return Input << fmt::format("{{{}:{}}}",
+				Location.XComponent, Location.YComponent);
+		}
+
 		uint8_t XComponent{},
 			YComponent{},
 			ZComponent{};
 	};
-	ostream& operator<<(ostream& Input, const PointComponent& Location) {
-		TRACE_FUNTION_PROTO; 
-		return Input << fmt::format("{{{}:{}}}",
-			Location.XComponent, Location.YComponent);
-	}
+	
 
 
 	// Sub packets
@@ -192,9 +231,8 @@ export namespace Network {
 
 	// Server and Client may both receive as well as send this struct to remotes
 	struct ShipSockControl {
-		uint8_t SizeOfThisStruct = sizeof(*this); // Has to specify the size of the this struct including the flexible array member content,
-												  // this is used for transmitting data, if this field is not set properly the send controls will probably fail
-
+		size_t SizeOfThisStruct = sizeof(*this); // Has to specify the size of the this struct including the flexible array member content,
+												 // this is used for transmitting data, if this field is not set properly the send controls will probably fail
 		enum ShipControlStatus {
 			STATUS_INVALID_PLACEMENT = -2000,
 			STATUS_NOT_YOUR_TURN,
@@ -269,26 +307,36 @@ export namespace Network {
 			// RAISE_STATUS_MESSAGE
 			ShipControlStatus ShipControlRaisedStatus;
 		};
+
+		friend ostream& operator<<(
+			      ostream&                                Input, 
+			const ShipSockControl::ShipControlCommandName SsCtl
+		) {
+			TRACE_FUNTION_PROTO;
+			return Input << fmt::format("[SSCTL: {}]",
+				(underlying_type_t<decltype(SsCtl)>)SsCtl);
+		}
 	};
 	static_assert(is_trivially_copyable_v<ShipSockControl>,
 		"ShipSockControl is a non trivially copyable type, "
 		"cannot stream it as raw/pod data");
-
 
 	class WsaNetworkBase {
 	public:
 		WsaNetworkBase() {
 			TRACE_FUNTION_PROTO;
 
-			if (++RefrenceCounter == 1) {
-				WSADATA WinSockData;
-				auto Result = WSAStartup(MAKEWORD(2, 2),
-					&WinSockData);
-				if (Result)
-					throw (SPDLOG_LOGGER_ERROR(NetworkLog, "Failed to initialize winsock layer"),
-						Result);
-				SPDLOG_LOGGER_INFO(NetworkLog, "Initilized winsock compatibility layer");
-			}
+			if (++RefrenceCounter != 1)
+				return;
+
+			WSADATA WinSockData;
+			auto Result = WSAStartup(MAKEWORD(2, 2),
+				&WinSockData);
+			if (Result)
+				throw (SPDLOG_LOGGER_ERROR(NetworkLog, "Failed to initialize winsock layer with {}",
+					WSAGetLastError()),
+					runtime_error("Failed to initialize winsock layer"));
+			SPDLOG_LOGGER_INFO(NetworkLog, "Initilized winsock compatibility layer");
 		}
 		~WsaNetworkBase() {
 			TRACE_FUNTION_PROTO;
@@ -300,8 +348,4 @@ export namespace Network {
 
 		static inline atomic<uint32_t> RefrenceCounter = 0;
 	};
-	ostream& operator<<(ostream& Input, const SOCKET& SocketAsId) {
-		TRACE_FUNTION_PROTO; return Input << fmt::format("[{:04x}]", (void*)SocketAsId);
-	}
-
 }

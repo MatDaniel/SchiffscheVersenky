@@ -5,9 +5,9 @@ module;
 
 #define FD_SETSIZE 1
 #include "BattleShip.h"
+#include <functional>
 #include <memory>
 #include <queue>
-#include <variant>
 
 export module Network.Client;
 export import LayerBase;
@@ -46,7 +46,7 @@ export namespace Network::Client {
 
 
 
-	class NetworkManager2
+	class NetworkManager2 final
 		: public MagicInstanceManagerBase<NetworkManager2>,
 		  private WsaNetworkBase {
 		friend class MagicInstanceManagerBase<NetworkManager2>;
@@ -62,11 +62,19 @@ export namespace Network::Client {
 		};
 
 	public:
-		typedef void(*MajorFunction)(        // this has to handle the networking requests being both capable of reading and sending requests
+		enum DispatchStatus {                 // Tristate response made by the dispatcher to determin execution flow
+			STATUS_FAILED_TO_CONNECT = -2000, // The network controller failed to connect to the remote, actively refused
+			STATUS_SOCKET_DISCONNECTED,       // Dispatcher had an internal server error and lead to a shutdown
+
+			STATUS_DISPATCH_OK = 0, // No errors, all requests successfully dispatched and handled
+			STATUS_SOCKET_CONNECTED // Signals that a client successfully connected to the server
+			                        // it is now in a fully operational state until disconnect
+		};
+		using MajorFunction = void(          // this has to handle the networking requests being both capable of reading and sending requests
 			NetworkManager2* NetworkDevice,  // a pointer to the NetWorkIoController responsible of said request packet
 			NwRequestPacket& NetworkRequest, // a reference to a network request packet describing the current request
-			void*            UserContext     // A pointer to caller defined data thats forwarded to the callback in every call, could be the GameManager class or whatever
-			);
+			void*            UserContext);   // A pointer to caller defined data thats forwarded to the callback in every call, could be the GameManager class or whatever
+		using MajorFunction_t = add_pointer_t<MajorFunction>;
 
 		~NetworkManager2() {
 			TRACE_FUNTION_PROTO;
@@ -79,12 +87,12 @@ export namespace Network::Client {
 			SPDLOG_LOGGER_INFO(NetworkLog, "Client network manager destroyed");
 		}
 
-		NwRequestPacket::NwRequestStatus
-		ExecuteNetworkRequestHandlerWithCallback( // Probes requests and prepares IORP's for asynchronous networking
-		                                          // notifies the caller over a callback and provides completion routines
-		                                          // returns the last tracked request issue or status complete
-			MajorFunction NetworkServiceRoutine,  // a user provided callback responsible for handling/completing requests
-			void*         UserContext             // some user provided polymorphic value forwarded to the handler routine
+		DispatchStatus
+		ExecuteNetworkRequestHandlerWithCallback(     // Probes requests and prepares IORP's for asynchronous networking
+		                                              // notifies the caller over a callback and provides completion routines
+		                                              // returns the last tracked request issue or status complete
+			function<MajorFunction> IoServiceRoutine, // a user provided callback responsible for handling/completing requests
+			void*                   UserContext       // some user provided polymorphic value forwarded to the handler routine
 		) {
 			TRACE_FUNTION_PROTO;
 
@@ -103,14 +111,18 @@ export namespace Network::Client {
 			// Evaluate result of select
 			switch (Result) {
 			case SOCKET_ERROR:
-				SPDLOG_LOGGER_ERROR(NetworkLog, "Socket query failed with {}",
+				SPDLOG_LOGGER_ERROR(NetworkLog, "Socket {} query failed with {}, shuting down",
+					RemoteServer,
 					WSAGetLastError());
-				return NwRequestPacket::STATUS_SOCKET_ERROR;
+				DispatchDisconnectService(IoServiceRoutine,
+					UserContext);
+				throw runtime_error("Failed to query socket, fatal cannot happen");
+				// return STATUS_SOCKET_DISCONNECTED;
 
 			case 0:
 				// Check for connect pending or no operations required
 				SPDLOG_LOGGER_TRACE(NetworkLog, "Socket query, no status information received, pending");
-				return NwRequestPacket::STATUS_WORK_PENDING;
+				return STATUS_DISPATCH_OK;
 
 			default:
 				// Check except fd_set and report oob data / failed connect attempt
@@ -126,15 +138,13 @@ export namespace Network::Client {
 						SPDLOG_LOGGER_ERROR(NetworkLog, "Failed to connect to remote {}, refused connection",
 							RemoteServer);
 						this->ManualReset();
-						return NwRequestPacket::STATUS_FAILED_TO_CONNECT;
+						return STATUS_FAILED_TO_CONNECT;
 					}
 
 					// This can be happily ignored cause I dont use OOB data :)
 					SPDLOG_LOGGER_DEBUG(NetworkLog, "Out of boud, data is ready for read");
 				}
 
-				
-				
 				auto BuildNetworkRequestPacket = [this](         // Helper function for building NRP's
 					NwRequestPacket::NwServiceCtl IoControlCode, //
 					ShipSockControl*              InternalPacket //
@@ -165,31 +175,31 @@ export namespace Network::Client {
 							switch (auto SocketErrorCode = WSAGetLastError()) {
 							case WSAEWOULDBLOCK:
 								// Force read loop to stop if we ended up again when no data is available anymore
-								DataExceededBufferReadAgain = false; 
+								DataExceededBufferReadAgain = false;
 								SPDLOG_LOGGER_TRACE(NetworkLog, "No (more) request to handle");
 								break;
 
 							default:
 								SPDLOG_LOGGER_CRITICAL(NetworkLog, "unhandled recv status {}",
 									SocketErrorCode);
-								DispatchDisconnectService(NetworkServiceRoutine,
+								DispatchDisconnectService(IoServiceRoutine,
 									UserContext);
-								return NwRequestPacket::STATUS_SOCKET_DISCONNECTED;
+								return STATUS_SOCKET_DISCONNECTED;
 							}
 							break;
 
 						case 0:
 							// Server disconnected gracefully, dispatch disconnect and shutdown
 							SPDLOG_LOGGER_INFO(NetworkLog, "Server disconnected from client");
-							DispatchDisconnectService(NetworkServiceRoutine,
+							DispatchDisconnectService(IoServiceRoutine,
 								UserContext);
-							return NwRequestPacket::STATUS_SOCKET_DISCONNECTED;
+							return STATUS_SOCKET_DISCONNECTED;
 
-						default:
+						default: {
 							// The start of the stream always represents the start of a package
 							auto PackageStreamPointer = (ShipSockControl*)DataReceiverStream.get();
 							ReceiverStreamLength += Result;
-							
+
 							// Check if the current buffer has been completely filled and schedule
 							// a new recv() iteration to get the possibly stored data
 							DataExceededBufferReadAgain = false;
@@ -204,14 +214,14 @@ export namespace Network::Client {
 							// Iterate through the current stream until we either reach the end or cannot
 							// dispatch incomplete packages anymore
 							while (ReceiverStreamLength >= MinimumSizeRead &&
-								PackageStreamPointer->SizeOfThisStruct < ReceiverStreamLength) {
+								PackageStreamPointer->SizeOfThisStruct <= ReceiverStreamLength) {
 
 								// Dispatch message as we know the current contained buffer content is large enough,
 								// to contain at least one ship control packet, therefore it can be directly referenced
 								auto NetworkRequest = BuildNetworkRequestPacket(
 									NwRequestPacket::INCOMING_PACKET,
 									PackageStreamPointer);
-								auto IoStatus = RequestDispatchAndReturn(NetworkServiceRoutine,
+								auto IoStatus = RequestDispatchAndReturn(IoServiceRoutine,
 									UserContext,
 									NetworkRequest);
 
@@ -220,11 +230,11 @@ export namespace Network::Client {
 
 									// Dispatch disconnect service routine and notify caller
 									SPDLOG_LOGGER_CRITICAL(NetworkLog, "Callback failed to handle ship sock control command, terminating connection");
-									DispatchDisconnectService(NetworkServiceRoutine,
+									DispatchDisconnectService(IoServiceRoutine,
 										UserContext);
-									return NwRequestPacket::STATUS_SOCKET_DISCONNECTED;
+									return STATUS_SOCKET_DISCONNECTED;
 								}
-									
+
 								// Update stream iterator states
 								ReceiverStreamLength -= PackageStreamPointer->SizeOfThisStruct;
 								(char*&)PackageStreamPointer += PackageStreamPointer->SizeOfThisStruct;
@@ -235,7 +245,7 @@ export namespace Network::Client {
 							memmove(DataReceiverStream.get(),
 								(void*)PackageStreamPointer,
 								ReceiverStreamLength);
-						}
+						}}
 					} while (DataExceededBufferReadAgain);					
 				}	
 
@@ -269,9 +279,9 @@ export namespace Network::Client {
 									// Dispatch error and disconnect from remote, this is a destructive call,
 									// it will destroy this object, and invalidate all references to it
 									SPDLOG_LOGGER_ERROR(NetworkLog, "send() failed to properly transmit delayed package");
-									DispatchDisconnectService(NetworkServiceRoutine,
+									DispatchDisconnectService(IoServiceRoutine,
 										UserContext);
-									return NwRequestPacket::STATUS_SOCKET_DISCONNECTED;
+									return STATUS_SOCKET_DISCONNECTED;
 								}
 								break;
 
@@ -302,7 +312,7 @@ export namespace Network::Client {
 						SPDLOG_LOGGER_INFO(NetworkLog, "Socket {} succesfully connected to remote",
 							RemoteServer);
 						SocketAttached = true;
-						return NwRequestPacket::STATUS_CONNECTED;
+						return STATUS_SOCKET_CONNECTED;
 					}
 				}
 			}
@@ -399,10 +409,10 @@ export namespace Network::Client {
 		}
 
 		NwRequestPacket::NwRequestStatus
-		RequestDispatchAndReturn(              // Dispatches and catches a network request
-			MajorFunction    IoServiceRoutine, // The passed routine responsible for handling
-			void*            UserContext,      // The passed user context
-			NwRequestPacket& NetworkRequest    // A NRP to extend and dispatch
+		RequestDispatchAndReturn(                     // Dispatches and catches a network request
+			function<MajorFunction> IoServiceRoutine, // The passed routine responsible for handling
+			void*                   UserContext,      // The passed user context
+			NwRequestPacket&        NetworkRequest    // A NRP to extend and dispatch
 		) {
 			TRACE_FUNTION_PROTO;
 
@@ -433,9 +443,9 @@ export namespace Network::Client {
 			}
 		}
 
-		void DispatchDisconnectService(     // Dispatches a disconnect notification and terminates the connection
-			MajorFunction IoServiceRoutine, // The passed routine responsible for handling
-			void*         UserContext       // An associated user context that should be passed along to the routine
+		void DispatchDisconnectService(               // Dispatches a disconnect notification and terminates the connection
+			function<MajorFunction> IoServiceRoutine, // The passed routine responsible for handling
+			void*                   UserContext       // An associated user context that should be passed along to the routine
 		) {
 			TRACE_FUNTION_PROTO;
 

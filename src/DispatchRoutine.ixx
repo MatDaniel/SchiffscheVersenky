@@ -18,25 +18,6 @@ export SpdLogger LayerLog;
 namespace Server {
 	using namespace Network::Server;
 
-	void RaiseStatusCompleteOnFailure(                     // Tries to raise a status on a client,
-	                                                       // if raising the status fails completes the NRP with an exception
-	                                                       // The client to raise is determined by NetworkRequest
-		NetworkManager2*                   NetworkDevice,  // A pointer to the current network device to obtain an associate
-		NwRequestPacket&                   NetworkRequest, // A forwarded request provided for possible completion and meta
-		ShipSockControl::ShipControlStatus RaisableStatus  // The status to raise on the client
-	) {
-		auto AssociatedClient = NetworkDevice->GetClientBySocket(
-			NetworkRequest.RequestingSocket);
-		if (AssociatedClient->RaiseStatusMessage(
-			RaisableStatus) < 0) {
-
-			// Abort NRP cause client manager failed to raise status
-			SPDLOG_LOGGER_CRITICAL(LayerLog, "Failed to post status message code on client {}",
-				NetworkRequest.RequestingSocket);
-			NetworkRequest.CompleteIoRequest(NwRequestPacket::STATUS_REQUEST_ERROR);
-		}
-	}
-
 	void CheckCurrentPhaseAndRaiseClientStatus( // Checks if the request matches the game phase supplied
 												// on mismatch the function will raise a status on the client
 												// and complete the NRP returning to the manager immediately
@@ -51,19 +32,22 @@ namespace Server {
 			return;
 
 		// Currently not in the correct game phase, notify caller by posting status and complete NRP
-		RaiseStatusCompleteOnFailure(NetworkDevice,
-			NetworkRequest,
+		auto AssociatedClient = NetworkDevice->GetClientBySocket(
+			NetworkRequest.RequestingSocket);
+		AssociatedClient->RaiseStatusMessageOrComplete(NetworkRequest,
 			ShipSockControl::STATUS_NOT_IN_PHASE);
 		SPDLOG_LOGGER_WARN(LayerLog, "Cannot execute handler, not in the correct gamestate");
 		NetworkRequest.CompleteIoRequest(NwRequestPacket::STATUS_REQUEST_IGNORED);
 	}
 
-	GmPlayerField& CheckPlayerAndGetFieldOrRaiseClientStatus(
-		NetworkManager2* NetwrokDevice,
-		NwRequestPacket& NetworkRequest
+	GmPlayerField& CheckPlayerAndGetFieldOrRaiseClientStatus( // Check if the nrp is dispatched through a registered player
+		                                                      // and get player's field, or complete nrp on failure
+		NetworkManager2* NetworkDevice,                       // A network manager pointer to the instance holding the player
+		NwRequestPacket& NetworkRequest                       // The NRP to complete on failure
 	) {
 		TRACE_FUNTION_PROTO;
 
+		// Get Playerfield for SocketAsId stored in NRP if it exists,
 		auto& GameManager = GameManager2::GetInstance();
 		auto RequestingPlayerField = GameManager.GetPlayerFieldByOperation(
 			GameManager2::GET_PLAYER_BY_ID,
@@ -71,17 +55,19 @@ namespace Server {
 		if (RequestingPlayerField)
 			return *RequestingPlayerField;
 
-		RaiseStatusCompleteOnFailure(NetwrokDevice,
-			NetworkRequest,
+		// otherwise raise a status and complete the NRP
+		auto AssociatedClient = NetworkDevice->GetClientBySocket(
+			NetworkRequest.RequestingSocket);
+		AssociatedClient->RaiseStatusMessageOrComplete(NetworkRequest,
 			ShipSockControl::STATUS_NOT_A_PLAYER);
 		SPDLOG_LOGGER_WARN(LayerLog, "Requesting client {}, is not a player", 
 			NetworkRequest.RequestingSocket);
 		NetworkRequest.CompleteIoRequest(NwRequestPacket::STATUS_REQUEST_IGNORED);
 	}
 
-	void CheckPlayerHasTurn(
-		NetworkManager2* NetworkDevice,
-		NwRequestPacket& NetworkRequest
+	void CheckPlayerHasTurnOrRaiseStatus( // Checks if the requesting player has his turn
+		NetworkManager2* NetworkDevice,   // A network manager pointer to the instance holding the player
+		NwRequestPacket& NetworkRequest   // The NRP to complete on failure and get the requesting player from
 	) {
 		TRACE_FUNTION_PROTO;
 
@@ -89,40 +75,25 @@ namespace Server {
 		if (NetworkRequest.RequestingSocket == GameManager.GetCurrentSelectedPlayer())
 			return;
 
-		RaiseStatusCompleteOnFailure(NetworkDevice,
-			NetworkRequest,
+		auto AssociatedClient = NetworkDevice->GetClientBySocket(
+			NetworkRequest.RequestingSocket);
+		AssociatedClient->RaiseStatusMessageOrComplete(NetworkRequest,
 			ShipSockControl::STATUS_NOT_YOUR_TURN);
 		SPDLOG_LOGGER_WARN(LayerLog, "Requesting client {}, does not have his turn", 
 			NetworkRequest.RequestingSocket);
 		NetworkRequest.CompleteIoRequest(NwRequestPacket::STATUS_REQUEST_IGNORED);
 	}
-
-	int32_t SendClientControlPackageCompleteOnFailure( // Sends the package and returns the number of bytes send,
-	                                                   // Or completes the NRP to directly return to the dispatcher
-		      NwClientControl& ClientController,       // The controller of the client to send the package to
-		      NwRequestPacket& NetworkRequest,         // A reference of the NRP to complete and handle
-		const ShipSockControl& DetailsPackage          // The ship sock control package to send over
-	) {
-		auto Result = ClientController.SendShipControlPackageDynamic(DetailsPackage);
-		if (Result)
-			return Result;
-
-		SPDLOG_LOGGER_ERROR(LayerLog, "Failed to transmit date to client {}",
-			ClientController.GetSocket());
-		NetworkRequest.CompleteIoRequest(NwRequestPacket::STATUS_SOCKET_ERROR);
-	}
-
 }
 
 // Internal server controller and server related utilities/parts of the layer manager
 export namespace Server {
 	using namespace Network::Server;
 
-
 	void ManagmentDispatchRoutine(
 		NetworkManager2* NetworkDevice,
 		NwRequestPacket& NetworkRequest,
-		void*            UserContext
+		void*            UserContext,
+		ShipSockControl* RequestPackage
 	) {
 		TRACE_FUNTION_PROTO;
 
@@ -130,17 +101,17 @@ export namespace Server {
 		case NwRequestPacket::INCOMING_CONNECTION: {
 
 			// Accept incoming connection and checkout
-			auto& NewClient = NetworkDevice->AcceptIncomingConnection(NetworkRequest);
+			auto& NewClient = NetworkDevice->AllocateConnectionAndAccept(NetworkRequest);
 			SPDLOG_LOGGER_INFO(LayerLog, "Successfully connected client to server");
 
 			// Send game dimensions and ship count information, this is send by default always
 			auto& GameManager = GameManager2::GetInstance();
-			SendClientControlPackageCompleteOnFailure(NewClient, NetworkRequest,
+			NewClient.DirectSendPackageOutboundOrComplete(NetworkRequest,
 				ShipSockControl{
 					.ControlCode = ShipSockControl::STARTUP_FIELDSIZE,
 					.GameFieldSizes = GameManager.InternalFieldDimensions
 				});
-			SendClientControlPackageCompleteOnFailure(NewClient, NetworkRequest,
+			NewClient.DirectSendPackageOutboundOrComplete(NetworkRequest,
 				ShipSockControl{
 					.ControlCode = ShipSockControl::STARTUP_SHIPCOUNTS,
 					.GameShipNumbers = GameManager.InternalShipCount
@@ -165,8 +136,10 @@ export namespace Server {
 				return;
 			}
 			
-			// continue here if registered as play: the server now sends the player an 
-			SendClientControlPackageCompleteOnFailure(NewClient, NetworkRequest,
+
+
+			// continue here if registered as play: the server now sends the player an id to associate with
+			NewClient.DirectSendPackageOutboundOrComplete(NetworkRequest,
 				ShipSockControl{
 					.ControlCode = ShipSockControl::STARTUP_YOUR_ID,
 					.SocketAsSelectedPlayerId = NewClient.GetSocket()
@@ -178,6 +151,117 @@ export namespace Server {
 
 		case NwRequestPacket::INCOMING_PACKET: {
 
+			switch (RequestPackage->ControlCode) {
+				case ShipSockControl::NO_COMMAND_CLIENT:
+					SPDLOG_LOGGER_WARN(LayerLog, "Debug NO_COMMAND received");
+					NetworkRequest.CompleteIoRequest(NwRequestPacket::STATUS_REQUEST_IGNORED);
+
+				case ShipSockControl::SHOOT_CELL_CLIENT: {
+
+					// Get basic meta data in order to interface with the game etc
+					auto& GameManager = GameManager2::GetInstance();
+					auto RequestingClientId = NetworkRequest.RequestingSocket;
+					
+					// Check if we are in game phase, does not return on error
+					CheckCurrentPhaseAndRaiseClientStatus(NetworkDevice,
+						NetworkRequest,
+						GameManager2::GAME_PHASE);
+					CheckPlayerHasTurnOrRaiseStatus(NetworkDevice,
+						NetworkRequest);
+					
+					// Get requesting client and filter out non players, does not return on error
+					auto& RequestingPlayerField = CheckPlayerAndGetFieldOrRaiseClientStatus(NetworkDevice,
+						NetworkRequest);
+					SPDLOG_LOGGER_INFO(LayerLog, "Applied checks and retrived requesting player {}", 
+						RequestingClientId);
+					auto OpponentPlayerField = GameManager.GetPlayerFieldByOperation(
+						GameManager2::GET_OPPONENT_PLAYER,
+						RequestingClientId);
+					if (!OpponentPlayerField)
+						throw runtime_error("Impossible state, there must be a opponent player during GAME_PHASE");
+					SPDLOG_LOGGER_INFO(LayerLog, "Retrived requesting players opponent {}",
+						GameManager.GetSocketAsIdForPlayerField(*OpponentPlayerField));
+
+					// we have check everything we can now care for the game logic, what we have to do:
+					// - update internal player state of opponent
+					auto CellUpdated = OpponentPlayerField->StrikeCellAndUpdateShipList(
+						RequestPackage->ShootCellLocation);
+					
+					// - inform the opponents client of the changes, aka sending him a shoot request
+					auto OpponenntId = GameManager.GetSocketAsIdForPlayerField(*OpponentPlayerField);
+					auto OpponentClient = NetworkDevice->GetClientBySocket(OpponenntId);
+					OpponentClient->DirectSendPackageOutboundOrComplete(NetworkRequest,
+						ShipSockControl{
+							.ControlCode = ShipSockControl::SHOOT_CELL_SERVER,
+							.SocketAsSelectedPlayerId = OpponenntId,
+							.ShootCellLocation = RequestPackage->ShootCellLocation
+						});
+					SPDLOG_LOGGER_INFO(LayerLog, "Send opponent {} state change notification",
+						OpponenntId);
+
+					// - broadcast the changes made to except to the opponents client
+					NetworkDevice->BroadcastShipSockControlExcept(NetworkRequest,
+						OpponenntId,
+						ShipSockControl{
+							.ControlCode = ShipSockControl::CELL_STATE_SERVER,
+							.SocketAsSelectedPlayerId = OpponenntId,
+							.CellStateUpdate = { RequestPackage->ShootCellLocation,
+							CellUpdated } });
+
+					SPDLOG_LOGGER_INFO(LayerLog, "Broadcasted cell state change to other clients");
+					NetworkRequest.CompleteIoRequest(NwRequestPacket::STATUS_REQUEST_COMPLETED);
+				}
+
+				case ShipSockControl::SET_SHIP_LOC_CLIENT: {
+
+					// Check game phase state and if requesting client is valid player
+					CheckCurrentPhaseAndRaiseClientStatus(NetworkDevice,
+						NetworkRequest,
+						GameManager2::SETUP_PHASE);
+					auto& RequestingPlayer = CheckPlayerAndGetFieldOrRaiseClientStatus(NetworkDevice,
+						NetworkRequest);
+					SPDLOG_LOGGER_INFO(LayerLog, "Applied checks and retrived requesting player {}",
+						NetworkRequest.RequestingSocket);
+
+					// - add the ship to the players field
+					auto Result = RequestingPlayer.PlaceShipSecureCheckInterference(
+						RequestPackage->ShipLocation.TypeOfShip,
+						RequestPackage->ShipLocation.Rotation,
+						RequestPackage->ShipLocation.ShipsPosition);
+					if (Result != GmPlayerField::STATUS_SHIP_PLACED) {
+
+						SPDLOG_LOGGER_ERROR(LayerLog, "Could not place ship, client {} seemingly didnt check correctly or attempted to cheat",
+							NetworkRequest.RequestingSocket);
+						auto AssociatedClient = NetworkDevice->GetClientBySocket(
+							NetworkRequest.RequestingSocket);
+						AssociatedClient->RaiseStatusMessageOrComplete(NetworkRequest,
+							ShipSockControl::STATUS_INVALID_PLACEMENT);
+						NetworkRequest.CompleteIoRequest(NwRequestPacket::STATUS_REQUEST_IGNORED);
+					}
+
+					// Complete request
+					SPDLOG_LOGGER_INFO(LayerLog, "Successfully received and placed ship on board");
+					NetworkRequest.CompleteIoRequest(NwRequestPacket::STATUS_REQUEST_COMPLETED);
+				}
+
+				default:
+					SPDLOG_LOGGER_WARN(LayerLog, "Untreated ShipSockControl command encountered, this is fine for now");
+					return;
+				}
+			
+			
+			
+			
+			
+			
+			
+				
+				
+				
+				
+				
+				
+				
 			// ALlocate buffer for incoming package and recv()
 			auto PacketBuffer = make_unique<char[]>(PACKET_BUFFER_SIZE);
 			auto Result = recv(NetworkRequest.RequestingSocket,
@@ -201,100 +285,6 @@ export namespace Server {
 				/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 				/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 				auto ShipSockControlPack = (ShipSockControl*)PacketBuffer.get();
-				switch (ShipSockControlPack->ControlCode) {
-				case ShipSockControl::NO_COMMAND_CLIENT:
-					SPDLOG_LOGGER_WARN(LayerLog, "Debug NO_COMMAND received");
-					NetworkRequest.CompleteIoRequest(NwRequestPacket::STATUS_REQUEST_IGNORED);
-
-				case ShipSockControl::SHOOT_CELL_CLIENT: {
-
-					// Get basic meta data in order to interface with the game etc
-					auto& GameManager = GameManager2::GetInstance();
-					auto RequestingClientId = NetworkRequest.RequestingSocket;
-					
-					// Check if we are in game phase, does not return on error
-					CheckCurrentPhaseAndRaiseClientStatus(NetworkDevice,
-						NetworkRequest,
-						GameManager2::GAME_PHASE);
-					CheckPlayerHasTurn(NetworkDevice,
-						NetworkRequest);
-					
-					// Get requesting client and filter out non players, does not return on error
-					auto& RequestingPlayerField = CheckPlayerAndGetFieldOrRaiseClientStatus(NetworkDevice,
-						NetworkRequest);
-					SPDLOG_LOGGER_INFO(LayerLog, "Applied checks and retrived requesting player {}", 
-						RequestingClientId);
-					auto OpponentPlayerField = GameManager.GetPlayerFieldByOperation(
-						GameManager2::GET_OPPONENT_PLAYER,
-						RequestingClientId);
-					if (!OpponentPlayerField)
-						throw runtime_error("Impossible state, there must be a opponent player during GAME_PHASE");
-					SPDLOG_LOGGER_INFO(LayerLog, "Retrived requesting players opponent {}",
-						GameManager.GetSocketAsIdForPlayerField(*OpponentPlayerField));
-
-					// we have check everything we can now care for the game logic, what we have to do:
-					// - update internal player state of opponent
-					auto CellUpdated = OpponentPlayerField->StrikeCellAndUpdateShipList(
-						ShipSockControlPack->ShootCellLocation);
-					
-					// - inform the opponents client of the changes, aka sending him a shoot request
-					auto OpponenntId = GameManager.GetSocketAsIdForPlayerField(*OpponentPlayerField);
-					auto OpponentClient = NetworkDevice->GetClientBySocket(OpponenntId);
-					SendClientControlPackageCompleteOnFailure(*OpponentClient, NetworkRequest,
-						ShipSockControl{
-							.ControlCode = ShipSockControl::SHOOT_CELL_SERVER,
-							.SocketAsSelectedPlayerId = OpponenntId,
-							.ShootCellLocation = ShipSockControlPack->ShootCellLocation
-						});
-					SPDLOG_LOGGER_INFO(LayerLog, "Send opponent {} state change notification",
-						OpponenntId);
-
-					// - broadcast the changes made to except to the opponents client
-					NetworkDevice->BroadcastShipSockControlExcept(ShipSockControl{
-							.ControlCode = ShipSockControl::CELL_STATE_SERVER,
-							.SocketAsSelectedPlayerId = OpponenntId,
-							.CellStateUpdate = { ShipSockControlPack->ShootCellLocation, CellUpdated } },
-						OpponenntId);
-
-					SPDLOG_LOGGER_INFO(LayerLog, "Broadcasted cell state change to other clients");
-					NetworkRequest.CompleteIoRequest(NwRequestPacket::STATUS_REQUEST_COMPLETED);
-				}
-
-				case ShipSockControl::SET_SHIP_LOC_CLIENT: {
-
-					// Check game phase state and if requesting client is valid player
-					CheckCurrentPhaseAndRaiseClientStatus(NetworkDevice,
-						NetworkRequest,
-						GameManager2::SETUP_PHASE);
-					auto& RequestingPlayer = CheckPlayerAndGetFieldOrRaiseClientStatus(NetworkDevice,
-						NetworkRequest);
-					SPDLOG_LOGGER_INFO(LayerLog, "Applied checks and retrived requesting player {}",
-						NetworkRequest.RequestingSocket);
-
-					// - add the ship to the players field
-					auto Result = RequestingPlayer.PlaceShipSecureCheckInterference(
-						ShipSockControlPack->ShipLocation.TypeOfShip,
-						ShipSockControlPack->ShipLocation.Rotation,
-						ShipSockControlPack->ShipLocation.ShipsPosition);
-					if (Result != GmPlayerField::STATUS_SHIP_PLACED) {
-
-						SPDLOG_LOGGER_ERROR(LayerLog, "Could not place ship, client {} seemingly didnt check correctly or attempted to cheat",
-							NetworkRequest.RequestingSocket);
-						RaiseStatusCompleteOnFailure(NetworkDevice,
-							NetworkRequest,
-							ShipSockControl::STATUS_INVALID_PLACEMENT);
-						NetworkRequest.CompleteIoRequest(NwRequestPacket::STATUS_REQUEST_IGNORED);
-					}
-
-					// Complete request
-					SPDLOG_LOGGER_INFO(LayerLog, "Successfully received and placed ship on board");
-					NetworkRequest.CompleteIoRequest(NwRequestPacket::STATUS_REQUEST_COMPLETED);
-				}
-
-				default:
-					SPDLOG_LOGGER_WARN(LayerLog, "Untreated ShipSockControl command encountered, this is fine for now");
-					return;
-				}
 			}
 		}
 		break;
@@ -322,6 +312,7 @@ export namespace Client {
 		PointComponent InternalFieldDimensions;
 		ShipCount      NumberOFShipsPerType;
 		bool           StateReady;
+		SOCKET         ClientIdByServer;
 	};
 
 
@@ -363,8 +354,8 @@ export namespace Client {
 
 				// At this point the game manager should already be valid
 				ServerRemoteIdForMyPlayer = NetworkRequest.IoControlPacketData->SocketAsSelectedPlayerId;
-				if (UserContext)
-					*(SOCKET*)UserContext = ServerRemoteIdForMyPlayer;
+				auto DispatchState = (ManagmentDispatchState*)UserContext;
+					DispatchState->ClientIdByServer = ServerRemoteIdForMyPlayer;
 				SPDLOG_LOGGER_INFO(LayerLog, "Server associated us with {}",
 					ServerRemoteIdForMyPlayer);
 				NetworkRequest.CompleteIoRequest(NwRequestPacket::STATUS_REQUEST_COMPLETED);
