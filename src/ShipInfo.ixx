@@ -8,7 +8,7 @@ module;
 #include "resource.h"
 
 export module Game.ShipInfo;
-import GameManagment;
+import GameManagement;
 import Network.Client;
 
 namespace
@@ -27,9 +27,10 @@ export namespace Draw
 
 	export constexpr size_t ShipTypeCount = 5;
 
-	export enum ShipType
+	export enum ShipType : uint8_t
 	{
-		ST_DESTROYER,
+		ST_INVALID = 255,
+		ST_DESTROYER = 0,
 		ST_CRUISER,
 		ST_SUBMARINE,
 		ST_BATTLESHIP,

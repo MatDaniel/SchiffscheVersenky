@@ -40,7 +40,7 @@ export namespace Timings
 			float mspf = 1000.0F / fps;
 			
 			// Update window title
-			auto title = fmt::format("SchiffscheVersenky {:.3f} ms/f ({:.0f} f/s)", mspf, fps);
+			auto title = fmt::format("SchiffscheVersenky {:.3f} ms/f ({:.1f} f/s)", mspf, fps);
 			Window::SetTitle(title.c_str());
 
 			// Reset values

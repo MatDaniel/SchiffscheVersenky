@@ -29,6 +29,7 @@ import Draw.Scene;
 import Draw.DearImGUI;
 import Draw.NetEngine;
 import Scenes.Menu;
+using namespace Draw;
 
 void GmManagerUnitTests() {
 	// Unit tests
@@ -174,19 +175,20 @@ export int main(
 				DearImGUI::Init();
 
 				// Initialize the resources
-				Draw::Resources::Init();
+				Resources::Init();
 
 				// Set entry scene
-				Scene::Load(std::make_unique<MenuScene>());
+				Scene::Load(make_unique<Scenes::MenuScene>());
 
 				// Run
 				int code = Engine::Run();
 
 				// Clean up
 				Scene::CleanUp();
-				Draw::Resources::CleanUp();
+				Resources::CleanUp();
 				DearImGUI::CleanUp();
 				Window::CleanUp();
+				NetEngine::CleanUp();
 
 				// Exit
 				SPDLOG_LOGGER_INFO(LayerLog, "Client successfully terminated");

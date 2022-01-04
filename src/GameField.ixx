@@ -6,9 +6,10 @@ module;
 #include <glm/gtc/matrix_transform.hpp>
 #define GLM_ENABLE_EXPERIMENTAL
 #include <glm/gtx/hash.hpp>
+
 #include <unordered_map>
 #include <vector>
-#include <imgui.h>
+#include <variant>
 
 #include "Vertex.hpp"
 #include "resource.h"
@@ -20,24 +21,24 @@ import Draw.Renderer;
 import Draw.Window;
 import Game.ShipInfo;
 import Network.Client;
-import GameManagment;
+import GameManagement;
 
-using namespace GameManagment;
+using namespace GameManagement;
 using namespace Network;
 using namespace Draw;
 using namespace std;
 using namespace glm;
 
 constexpr float BorderSize = 0.1F;
-constexpr glm::vec3 UpNormal = glm::vec3(0.0F, 1.0F, 0.0F);
+constexpr vec3 UpNormal = vec3(0.0F, 1.0F, 0.0F);
 
-static Render::IndexRange FieldSqInfo { 0, 6 };
-static Render::IndexRange BackgroundInfo { 6, 12 };
-static vec4 BorderColor(1.0F, 1.0F, 1.0F, 1.0F);
-static vec4 OceanColor(0.18F, 0.33F, 1.0F, 1.0F);
-static vec4 CollisionColor(0.75F, 0.1F, 0.1F, 1.0F);
-static vec4 IndirectCollisionColor(0.93F, 0.93F, 0.115F, 1.0F);
-static vec4 DigitalColor(0.19F, 0.75F, 0.25F, 1.0F);
+static Render::IndexRange FieldSquareRange { 0, 6 };
+static Render::IndexRange BackgroundRange { 6, 12 };
+static mat4 OceanVerticalTransforms[2]
+{
+	translate(mat4(1.0F), vec3(-1.0F, 0.0F, 0.0F)),
+	translate(mat4(1.0F), vec3(1.0F, 0.0F, 0.0F))
+};
 
 uint32_t vert(std::vector<Vertex>& vertices, std::unordered_map<Vertex, uint32_t>& uniqueCache,
 	const Vertex& vert)
@@ -83,16 +84,44 @@ void appendSquare(float topEdge, float botEdge, float leftEdge, float rightEdge,
 
 }
 
+using NoState = typename monostate;
+
+struct SetupState
+{
+
+	// Constructor
+	SetupState() = default;
+
+	// Properties for selection
+	ShipCount PlacedShips{ 0, 0, 0, 0, 0 };
+	ShipType SelectedShip{ Draw::ST_DESTROYER };
+
+	// Properties for collision
+	ShipClass LastProbedClass{ NetCastType(Draw::ST_INVALID) };
+	ShipRotation LastProbedOrientation;
+	PointComponent LastProbedPoint;
+	unordered_map<u8vec2, GmPlayerField::PlayFieldStatus> InvalidPlacementSquares{ };
+
+	// Utilities
+	void InvalidateProbedData()
+	{
+		LastProbedClass = NetCastType(ST_INVALID);
+	}
+
+};
+
+using State = typename variant<NoState, SetupState>;
+
 export class GameField
 {
 public:
 
+	// Types
+	using CursorPosition = typename vec2;
+
 	GameField(const GameManager2& manager, GmPlayerField* playerField)
 		: m_Width(manager.InternalFieldDimensions.XComponent)
 		, m_Height(manager.InternalFieldDimensions.YComponent)
-		, m_GameFieldMesh()
-		, m_WaterPipeline(Resources::find<Render::ShaderPipeline>("Cel"))
-		, m_WaterTexture(Resources::find<Render::Texture>("Dummy"))
 		, m_GameManager(manager)
 		, m_PlayerField(playerField)
 	{
@@ -111,15 +140,18 @@ public:
 									       : glm::vec2(m_Width / (float)m_Height, 1.0F);
 		float usSquareSize = usBounds.x / (float)m_Width; // Get unscaled square
 		float usBorderAxis = usSquareSize * BorderSize; // Get unscaled border size at an axis in a square
+		float usBorder = usBorderAxis / 2.0F; // Get unscaled border size at an edge in a square
 		float scale = (std::max(m_Width, m_Height) * usSquareSize + usBorderAxis) / 1.0F; // Get scale value
-		float borderSize = usBorderAxis / 2.0F / scale; // Scale border, divide by two to get the border for an edge.
+		float borderAxis = usBorderAxis/ scale; // Scale border
+		float borderSize = borderAxis / 2.0F; // Divide by two to get the border for an edge
 		m_SqaureSize = usSquareSize / scale; // Scale square size
+		float squareScale = m_SqaureSize - borderAxis; // Used later for transform
 		constexpr float edge = 0.5F;
 
 		// Create square model
-		appendSquare(m_SqaureSize / 2.0F - borderSize, borderSize - m_SqaureSize / 2.0F,
-			         borderSize - m_SqaureSize / 2.0F, m_SqaureSize / 2.0F - borderSize,
-				     vertices, indices, uniqueCache);
+		appendSquare(0.5F, -0.5F,
+			         -0.5F, 0.5F,
+			         vertices, indices, uniqueCache);
 
 		// Create outer background model
 		glm::vec2 topLeftPos;
@@ -185,16 +217,19 @@ public:
 		// Setup border info: size
 		m_BorderRange.size = indices.size() - m_BorderRange.offset;
 
-		// Setup per instance data
-		m_FieldSquareTransforms = new glm::mat4[m_Width * m_Height];
-		SetTransform(glm::mat4(1.0F));
-
 		// Upload model
 		m_GameFieldMesh = Render::ConstMesh({ vertices }, { indices });
 
+		// Setup per instance data
+		m_FieldSquareTransforms = new mat4[m_Width * m_Height];
+		size_t i = 0;
+		for (uint32_t y = 0; y < m_Height; y++)
+			for (uint32_t x = 0; x < m_Width; x++, i++)
+				m_FieldSquareTransforms[i] = glm::scale(TranslateByIdentity({ x + 0.5F, y + 0.5F }), { squareScale, squareScale, squareScale });
+
 		// Calculate ship scaling
 		float ShipScaleValue = m_SqaureSize / 10.0F;
-		m_ShipScale = glm::scale(glm::mat4(1.0F), glm::vec3(ShipScaleValue, ShipScaleValue, ShipScaleValue));
+		m_ShipScale = glm::scale(mat4(1.0F), vec3(ShipScaleValue, ShipScaleValue, ShipScaleValue));
 
 	}
 
@@ -202,15 +237,6 @@ public:
 	{
 		delete[] m_FieldSquareTransforms;
 		GameManager2::ManualReset();
-	}
-
-	void SetTransform(glm::mat4 transform)
-	{
-		m_Transform = transform;
-		size_t i = 0;
-		for (uint32_t y = 0; y < m_Height; y++)
-			for (uint32_t x = 0; x < m_Width; x++, i++)
-				m_FieldSquareTransforms[i] = CalcTransform({ x + 0.5F, y + 0.5F });
 	}
 
 	size_t size() const noexcept
@@ -223,168 +249,264 @@ public:
 		return m_Width * y + x;
 	}
 
-	void DrawBackground(SceneRenderer& renderer)
+	void DrawBackground(Renderer& Renderer)
 	{
-		Render::Material material
-		{
-			.Pipeline = m_WaterPipeline,
-			.Texture = m_WaterTexture
-		};
 
 		// Render border
-		material.ColorTilt = BorderColor;
-		renderer.Draw(m_Transform, m_GameFieldMesh.VertexArray(), m_BorderRange, material);
+		Renderer.Draw(mat4(1.0F), m_GameFieldMesh.VertexArray(), m_BorderRange, *m_BorderMaterial);
 
 		// Render background
 		if (m_Width != m_Height)
-		{
-			material.ColorTilt = OceanColor;
-			renderer.Draw(m_Transform, m_GameFieldMesh.VertexArray(), BackgroundInfo, material);
-		}
+			Renderer.Draw(mat4(1.0F), m_GameFieldMesh.VertexArray(), BackgroundRange, *m_WaterMaterial);
+
 	}
 
-	void DrawPlacedShips(SceneRenderer& renderer)
+	void DrawPlacedShips(Renderer& Renderer)
 	{
 		auto shipStates = m_PlayerField->GetShipStateList();
 		for (auto& shipState : shipStates)
 		{
 			auto [type, pos] = DrawCastPos(shipState);
-			DrawShip(renderer, type, pos);
+			DrawShip(Renderer, type, pos);
 		}
 	}
 
-	void DrawSquares(SceneRenderer& renderer, auto colorGetter)
+	void DrawSquares(Renderer& Renderer, auto MaterialGetter) const
 	{
-		Render::Material material
-		{
-			.Pipeline = m_WaterPipeline,
-			.Texture = m_WaterTexture
-		};
-
 		size_t i = 0;
 		for (uint8_t y = 0; y < m_Height; y++)
 			for (uint8_t x = 0; x < m_Width; x++, i++)
-			{
-				material.ColorTilt = colorGetter(x, y);
-				renderer.Draw(m_FieldSquareTransforms[i],
-					m_GameFieldMesh.VertexArray(), FieldSqInfo, material);
-			}
+				Renderer.Draw(m_FieldSquareTransforms[i], m_GameFieldMesh.VertexArray(), FieldSquareRange, *MaterialGetter(x, y));
 	}
 
-	void DrawShip(SceneRenderer& renderer, ShipType type, ShipPosition pos)
+	template <typename ...VArgs>
+	void DrawShip(Renderer& renderer, ShipType type, ShipPosition pos, VArgs&&... VarArgs)
 	{
-		renderer.Draw(CalcTransform(pos.position) * m_ShipScale * ShipRotations[pos.direction], m_ShipModels[type]);
+		renderer.Draw(TranslateByIdentity(pos.position) * m_ShipScale * ShipRotations[pos.direction], m_ShipModels[type], forward<VArgs>(VarArgs)...);
+	}
+
+	void DrawOcean(Renderer& Renderer)
+	{
+		for (auto i = 0; i < 2; i++)
+			Renderer.Draw(OceanVerticalTransforms[i], m_GameFieldMesh.VertexArray(), FieldSquareRange, *m_WaterMaterial);
+		for (auto i = 0; i < 2; i++)
+			Renderer.Draw(m_EdgeOceanTransforms[i], m_GameFieldMesh.VertexArray(), FieldSquareRange, *m_WaterMaterial);
+	}
+
+	// Game
+	//------
+
+	void Game_DrawSquares(Renderer& Renderer) const
+	{
+		DrawSquares(Renderer, [this](auto x, auto y) -> Render::Material* {
+			return m_WaterMaterial;
+		});
 	}
 
 	// Enemy
 	//-------
 
-	void Enemy_DrawBackground(SceneRenderer& renderer)
+	void Enemy_DrawBackground(Renderer& renderer)
 	{
+		renderer.Draw(glm::mat4(1.0F), m_GameFieldMesh.VertexArray(), m_BorderRange, *m_EnemyBorderMaterial);
+	}
 
-		Render::Material InputMaterial
-		{
-			.Pipeline = m_WaterPipeline,
-			.Texture = m_WaterTexture,
-			.ColorTilt = DigitalColor
-		};
+	void Enemy_DrawHits(Renderer& renderer)
+	{
+		renderer.Draw(m_FieldSquareTransforms[index(0, 0)], m_MarkerShipModel);
+		renderer.Draw(m_FieldSquareTransforms[index(4, 3)], m_MarkerFailModel);
+		renderer.Draw(m_FieldSquareTransforms[index(2, 11)], m_MarkerFailModel);
+		renderer.Draw(m_FieldSquareTransforms[index(6, 10)], m_MarkerShipModel);
+	}
+	
+	CursorPosition Enemy_GetCursorPosition(const SceneData& SceneRendererData, const SceneData& ScreenRendererData, const mat4& ScreenTransform)
+	{
+		vec2 ScreenTopLeft(-0.5F, 0.5F);
+		vec2 ScreenBotRight(0.5F, -0.5F);
+		vec2 ScreenInternalSize(2.0F, 2.0F);
+		vec4 SceneIntermideateTopLeft(ScreenTransform * vec4(0.5F, 0.0F,  -0.5F, 1.0F));
+		vec4 SceneIntermideateBotRight(ScreenTransform * vec4(-0.5F, 0.0F, 0.5F, 1.0F));
+		vec2 SceneTopLeft(SceneIntermideateTopLeft.z, SceneIntermideateTopLeft.x);
+		vec2 SceneBotRight(SceneIntermideateBotRight.z, SceneIntermideateBotRight.x);
+		vec2 ScenePos(GetCursorPosByArea(SceneRendererData, 1, 1, SceneTopLeft, SceneBotRight));
+		return { GetCursorPosByArea(ScreenRendererData, m_Width, m_Height, ScreenTopLeft, ScreenBotRight, ScenePos, ScreenInternalSize) };
+	}
 
-		renderer.Draw(glm::mat4(1.0F), m_GameFieldMesh.VertexArray(), m_BorderRange, InputMaterial);
+	void Enemy_Selection(Renderer& renderer, const CursorPosition& CursorPos)
+	{
+		auto XCoord = clamp<int32_t>(CursorPos.x, 0, m_Width - 1);
+		auto YCoord = clamp<int32_t>(CursorPos.y, 0, m_Height - 1);
+		renderer.Draw(m_FieldSquareTransforms[index(XCoord, YCoord)], m_MarkerSelectModel);
 	}
 
 	// Setup phase
 	//-------------
 
-	void SetupPhase_DrawSquares(SceneRenderer& renderer)
+	void SetupPhase_UpdateState()
 	{
-		DrawSquares(renderer, [this](auto x, auto y) -> vec4 {
-			auto iter = m_InvalidPlacementSquares.find({ x, y });
-			if (iter != m_InvalidPlacementSquares.end())
+		m_State.emplace<SetupState>();
+	}
+
+	void SetupPhase_DrawSquares(Renderer& Renderer) const
+	{
+		DrawSquares(Renderer, [this](auto x, auto y) -> Render::Material* {
+			auto iter = get<SetupState>(m_State).InvalidPlacementSquares.find({ x, y });
+			if (iter != get<SetupState>(m_State).InvalidPlacementSquares.end())
 			{
 				switch (iter->second)
 				{
 				case GmPlayerField::STATUS_DIRECT_COLLIDE:
-					return CollisionColor;
+					return m_CollisionMaterial;
 				case GmPlayerField::STATUS_INDIRECT_COLLIDE:
-					return IndirectCollisionColor;
+					return m_CollisionIndirectMaterial;
 				default:
 					break;
 				}
 			}
-			return OceanColor; // TODO: Get colors by game info
-			});
+			return m_WaterMaterial;
+		});
 	}
 
-	void SetupPhase_PlaceShip(SceneRenderer& renderer, ShipType type)
+	void SetupPhase_PlaceShip(const SceneData& RendererData)
 	{
 
 		// Get rendering variables
-		auto selected = GetCursorPos(renderer);
-		if (selected.x < 0.0F || selected.x > m_Width || selected.y < 0.0F || selected.y > m_Height)
+		auto CursorHoverPos = GetCursorPos(RendererData);
+		if (CursorHoverPos.x < 0.0F || CursorHoverPos.x > m_Width || CursorHoverPos.y < 0.0F || CursorHoverPos.y > m_Height)
 			return; // Don't run if cursor is out of bounds.
-		auto pos = GetShipPos(selected, type);
+		auto ShipPosition = GetShipPos(CursorHoverPos, get<SetupState>(m_State).SelectedShip);
 		
 		// Convert rendering variables to network compatible ones
-		auto shipClass = NetCastType(type);
-		auto shipOrientation = NetCastRot(pos.direction);
-		auto shipPosition = NetCastPos(type, pos);
+		auto NetShipClass = NetCastType(get<SetupState>(m_State).SelectedShip);
+		auto NetShipOrientation = NetCastRot(ShipPosition.direction);
+		auto NetShipPosition = NetCastPos(get<SetupState>(m_State).SelectedShip, ShipPosition);
 
-		// Probe the state before placing the ship
-		// and place it if no invalid states are returned.
-		auto result = m_PlayerField->ProbeShipPlacement(shipClass, shipOrientation, shipPosition);
-		if (result.empty())
-		{
-			m_PlayerField->PlaceShipBypassSecurityChecks(shipClass, shipOrientation, shipPosition);
-			m_LastProbedShipClass = (ShipClass) -1; // Invalidate probed data
-		}
+		// Probe the state before placing the ship and ensure no invalid states are returned.
+		auto result = m_PlayerField->ProbeShipPlacement(NetShipClass, NetShipOrientation, NetShipPosition);
+		if (result.size())
+			return;
+
+		m_PlayerField->PlaceShipBypassSecurityChecks(NetShipClass, NetShipOrientation, NetShipPosition);
+		get<SetupState>(m_State).InvalidateProbedData();
+
+		// Ensure no more units are available of the current ship type,
+		// but the game field is not completed yet and there are units
+		// of different ship types left.
+		if (++get<SetupState>(m_State).PlacedShips.ShipCounts[NetShipClass] < m_GameManager.InternalShipCount.ShipCounts[NetShipClass]
+			|| SetupPhase_IsFinished())
+			return;
+
+		// Try to find any ship with units available that is larger than the current ship.
+		for (uint8_t NextShipClass = NetShipClass + 1; NextShipClass < ShipTypeCount; NextShipClass++)
+			if (SetupPhase_AreUnitsAvailable((ShipClass)NextShipClass))
+			{
+				get<SetupState>(m_State).SelectedShip = DrawCastType((ShipClass)NextShipClass);
+				return;
+			}
+
+		// Try to find any ship with units available that is smaller than the current ship.
+		for (uint8_t NextShipClass = NetShipClass - 1; NextShipClass < ShipTypeCount; NextShipClass--)
+			if (SetupPhase_AreUnitsAvailable((ShipClass)NextShipClass))
+			{
+				get<SetupState>(m_State).SelectedShip = DrawCastType((ShipClass)NextShipClass);
+				return;
+			}
+				
 			
 	}
 
-	void SetupPhase_PreviewPlacement(SceneRenderer& renderer, ShipType type)
+	void SetupPhase_PreviewPlacement(Renderer& Renderer, const SceneData& RendererData)
 	{
 
 		// Get ship position from cursor position
-		auto selected = GetCursorPos(renderer);
-		auto pos = GetShipPos(selected, type);
+		auto CursorHoverPos = GetCursorPos(RendererData);
+		auto ShipPosition = GetShipPos(CursorHoverPos, get<SetupState>(m_State).SelectedShip);
 
 		// Draw ship with the cursor position
-		DrawShip(renderer, type, pos);
+		DrawShip(Renderer, get<SetupState>(m_State).SelectedShip, ShipPosition, vec4(0.235F, 0.76F, 0.13F, 1.0F));
 		
 		// Cast rendering variables to network compatible ones
-		auto shipClass = NetCastType(type);
-		auto shipOrientation = NetCastRot(pos.direction);
-		auto shipPosition = NetCastPos(type, pos);
+		auto NetShipClass = NetCastType(get<SetupState>(m_State).SelectedShip);
+		auto NetShipOrientation = NetCastRot(ShipPosition.direction);
+		auto NetShipPosition = NetCastPos(get<SetupState>(m_State).SelectedShip, ShipPosition);
 
 		// Ensure it's a new probe
-		if (m_LastProbedShipClass == shipClass
-			&& m_LastProbedShipOrientation == shipOrientation
-			&& m_LastProbedPoint == shipPosition)
+		if (get<SetupState>(m_State).LastProbedClass == NetShipClass
+			&& get<SetupState>(m_State).LastProbedOrientation == NetShipOrientation
+			&& get<SetupState>(m_State).LastProbedPoint == NetShipPosition)
 			return;
 		
 		// Set them to the last probed variables
-		m_LastProbedShipClass = shipClass;
-		m_LastProbedShipOrientation = shipOrientation;
-		m_LastProbedPoint = shipPosition;
+		get<SetupState>(m_State).LastProbedClass = NetShipClass;
+		get<SetupState>(m_State).LastProbedOrientation = NetShipOrientation;
+		get<SetupState>(m_State).LastProbedPoint = NetShipPosition;
 
 		// Probe the ship placement with these variables
-		auto result = m_PlayerField->ProbeShipPlacement(shipClass, shipOrientation, shipPosition);
+		auto ProbeResult = m_PlayerField->ProbeShipPlacement(NetShipClass, NetShipOrientation, NetShipPosition);
 
 		// Clear state
-		m_InvalidPlacementSquares.clear();
+		get<SetupState>(m_State).InvalidPlacementSquares.clear();
 		
 		// Save collision states to preview them on the field
-		for (auto& [coords, status] : result)
+		for (auto& [Coords, Status] : ProbeResult)
 		{
-			switch (status)
+			switch (Status)
 			{
 			case GmPlayerField::STATUS_DIRECT_COLLIDE:
 			case GmPlayerField::STATUS_INDIRECT_COLLIDE:
-				m_InvalidPlacementSquares.try_emplace(u8vec2{ coords.XComponent, coords.YComponent }, status);
+				get<SetupState>(m_State).InvalidPlacementSquares.try_emplace(u8vec2{ Coords.XComponent, Coords.YComponent }, Status);
 				break;
 			default:
 				break;
 			}
 		}
+	}
+
+	void SetupPhase_ShipSelection(Renderer& Renderer, const SceneData& RendererData, bool WasLeftClicked)
+	{
+		auto SquareSize = 0.15F;
+		auto ScaleValue = SquareSize / 10.0F;
+		auto ShipScale = scale(mat4(1.0F), vec3(ScaleValue, ScaleValue, ScaleValue));
+		auto ShipDistance = SquareSize + 0.02F;
+		for (uint8_t i = 0, n = 0; i < ShipTypeCount; i++)
+		{
+			ShipType CurrentShip = (ShipType)i;
+			if (SetupPhase_AreUnitsAvailable(NetCastType(CurrentShip)))
+			{
+				auto ShipSize = ShipInfos[i].size;
+				auto ShipYOffset = (2.0F - n++) * ShipDistance;
+				vec2 TopLeft{
+					0.55F,
+					ShipYOffset + SquareSize / 2.0F
+				};
+				vec2 BotRight{
+					0.55F + SquareSize * ShipSize,
+					ShipYOffset - SquareSize / 2.0F
+				};
+				auto CursorPos = GetCursorPosByArea(RendererData, 1, 1, TopLeft, BotRight);
+				bool IsCursorHovering = CursorPos.x >= 0.0F && CursorPos.x <= 1.0F
+					&& CursorPos.y >= 0.0F && CursorPos.y <= 1.0F;
+				auto ShipTransform = translate(mat4(1.0F), vec3(ShipYOffset, 0.0F, 0.55F + SquareSize * ShipSize / 2.0F));
+				if (WasLeftClicked && IsCursorHovering)
+					get<SetupState>(m_State).SelectedShip = CurrentShip;
+				if (i == get<SetupState>(m_State).SelectedShip)
+					Renderer.Draw(ShipTransform * ShipScale, m_ShipModels[i], vec4(0.0F, 0.0F, 1.0F, 1.0F));
+				else if (IsCursorHovering)
+					Renderer.Draw(ShipTransform * ShipScale, m_ShipModels[i], vec4(0.0F, 0.0F, 1.0F, 1.0F), 0.5F);
+				else
+					Renderer.Draw(ShipTransform * ShipScale, m_ShipModels[i]);
+			}
+		}
+	}
+
+	bool SetupPhase_IsFinished()
+	{
+		return get<SetupState>(m_State).PlacedShips.GetTotalCount() >= m_GameManager.InternalShipCount.GetTotalCount();
+	}
+
+	bool SetupPhase_AreUnitsAvailable(ShipClass Type)
+	{
+		return get<SetupState>(m_State).PlacedShips.ShipCounts[Type] < m_GameManager.InternalShipCount.ShipCounts[Type];
 	}
 
 	// Utility
@@ -393,30 +515,31 @@ public:
 	/**
 	 * @brief Returns the location of the mouse on the game field.
 	 */
-	vec2 GetCursorPos(const SceneRenderer& renderer)
+	CursorPosition GetCursorPosByArea(const SceneData& RendererData,
+		uint32_t Width, uint32_t Height,
+		vec2 InTopLeft, vec2 InBotRight,
+		vec2 CursorWindowPosition, vec2 WindowSize)
 	{
 
 		// Calculate top left & top right corner position in the opengl canvas
-		auto& ubo = renderer.ubo();
-		vec2 topLeft = ubo.projMtx * ubo.viewMtx * m_Transform * vec4(
-			m_TopLeftPos.y,
+		auto& ubo = RendererData.GetUBO();
+		vec2 topLeft = ubo.projMtx * ubo.viewMtx * vec4(
+			InTopLeft.y,
 			0.0F,
-			m_TopLeftPos.x,
+			InTopLeft.x,
 			1.0F
 		);
-		vec2 botRight = ubo.projMtx * ubo.viewMtx * m_Transform * vec4(
-			m_TopLeftPos.y - (m_Height * m_SqaureSize),
+		vec2 botRight = ubo.projMtx * ubo.viewMtx * vec4(
+			InBotRight.y,
 			0.0F,
-			m_TopLeftPos.x + (m_Width * m_SqaureSize),
+			InBotRight.x,
 			1.0F
 		);
 
 		// Convert cursor glfw position to an opengl canvas position
-		auto cursorPos = Window::Properties::CursorPos;
-		auto winSize = Window::Properties::WindowSize;
 		auto cursorPosGL = glm::vec2(
-			(cursorPos.x / (winSize.x - 1)) * 2.0F - 1.0F,
-			(cursorPos.y / (winSize.y - 1)) * -2.0F + 1.0F
+			(CursorWindowPosition.x / (WindowSize.x - 1)) * 2.0F - 1.0F,
+			(CursorWindowPosition.y / (WindowSize.y - 1)) * -2.0F + 1.0F
 		);
 
 		// Calculate field size in the opengl canvas
@@ -426,7 +549,7 @@ public:
 		));
 
 		// Calculate size of squares in the opengl canvas
-		auto sqSize = fieldSize / vec2(m_Width, m_Height);
+		auto sqSize = fieldSize / vec2(Width, Height);
 
 		// Calculate cursor position with (0;0) being the top-left corner
 		auto cursorPosGLTL = vec2(
@@ -440,18 +563,57 @@ public:
 	}
 
 	/**
+	 * @brief Returns the location of the mouse on the game field.
+	 */
+	CursorPosition GetCursorPosByArea(const SceneData& RendererData,
+		uint32_t Width, uint32_t Height,
+		vec2 InTopLeft, vec2 InBotRight)
+	{
+
+		return GetCursorPosByArea(RendererData,
+			Width, Height,
+			InTopLeft, InBotRight,
+			Window::Properties::CursorPos, Window::Properties::WindowSize);
+
+	}
+	
+	/**
+	 * @brief Returns the location of the mouse on the game field.
+	 */
+	CursorPosition GetCursorPos(const SceneData& RendererData)
+	{
+
+		return GetCursorPosByArea(RendererData, m_Width, m_Height,
+
+			// Top Left
+			{
+				m_TopLeftPos.x,
+				m_TopLeftPos.y
+			},
+
+			// Bottom Right
+			{
+				m_TopLeftPos.x + (m_Width * m_SqaureSize),
+				m_TopLeftPos.y - (m_Height * m_SqaureSize)
+			}
+
+		);
+
+	}
+
+	/**
 	 * @brief Converts a cursor position to a ship position
 	 *        for a specific ship type.
 	 */
-	ShipPosition GetShipPos(vec2 pos, ShipType type)
+	ShipPosition GetShipPos(CursorPosition CursorPos, ShipType Type)
 	{
 
 		// Get ship info
-		auto& info = ShipInfos[type];
+		auto& info = ShipInfos[Type];
 		bool odd = info.size % 2;
 
 		// Get mouse location (without floating point)
-		auto flooredPosition = floor(pos);
+		auto flooredPosition = floor(CursorPos);
 		vec2 limits{ m_Width, m_Height };
 
 		// Get ship direction
@@ -460,7 +622,7 @@ public:
 			{ 0.5F, 0.5F },
 			limits - vec2(0.5F, 0.5F)
 		);
-		auto shipDirection = pos - pointerTarget;
+		auto shipDirection = CursorPos - pointerTarget;
 		bool horizontal = abs(shipDirection.x) > abs(shipDirection.y);
 
 		// Setup Primary / Secondary
@@ -480,9 +642,9 @@ public:
 		// Get forward
 		bool forward;
 		float halfSize = info.size / 2.0F;
-		if (pos.*primary < halfSize)
+		if (CursorPos.*primary < halfSize)
 			forward = false;
-		else if (pos.*primary > limits.*primary - halfSize)
+		else if (CursorPos.*primary > limits.*primary - halfSize)
 			forward = true;
 		else
 			forward = shipDirection.*primary >= 0.0F;
@@ -514,34 +676,65 @@ public:
 
 	}
 
-	mat4 CalcTransform(const vec2& pos, float height = 0.0F) const
+	mat4 TranslateBy(const mat4& InitialTransformation,  const vec2& pos, float height = 0.0F) const
 	{
-		return translate(m_Transform, vec3(
+		return translate(mat4(1.0F), vec3(
 			m_TopLeftPos.y - pos.y * m_SqaureSize,
 			height,
 			m_TopLeftPos.x + pos.x * m_SqaureSize)
 		);
 	}
 
+	mat4 TranslateByIdentity(const vec2& pos, float height = 0.0F) const
+	{
+		return TranslateBy(mat4(1.0F), pos, height);
+	}
+	
+	void RecalculateOcean(const Render::FrameBuffer& TargetFB, float Height, float LeftShift = 0.0F)
+	{
+		float OceanWidth = (TargetFB.Width() * Height / TargetFB.Height() - 1.0F) / 2.0F;
+		RecalculateOcean(OceanWidth + LeftShift, OceanWidth - LeftShift);
+	}
+	
+	void RecalculateOcean(float Left, float Right)
+	{
+		m_EdgeOceanTransforms[0] = scale(
+			translate(mat4(1.0F), vec3(0.0F, 0.0F, 0.5F + Right / 2.0F)),
+			vec3(3.0F, 1.0F, Right)
+		);
+		m_EdgeOceanTransforms[1] = scale(
+			translate(mat4(1.0F), vec3(0.0F, 0.0F, -0.5F - Left / 2.0F)),
+			vec3(3.0F, 1.0F, Left)
+		);
+	}
+
 private:
 
-	// Info
+	// General Properties
 	uint8_t m_Width, m_Height;
-	mat4 m_Transform;
-	
+
+	// Properties for translation
+	vec2 m_TopLeftPos;
+	float m_SqaureSize;
+
 	// The created model
-	Render::ConstMesh m_GameFieldMesh;
+	Render::ConstMesh m_GameFieldMesh { };
 
 	// Common material data
-	Render::ShaderPipeline* m_WaterPipeline;
-	Render::Texture* m_WaterTexture;
+	Render::Material* m_WaterMaterial { Resources::find<Render::Material>("GameField_Water") };
+	Render::Material* m_BorderMaterial { Resources::find<Render::Material>("GameField_Border") };
+	Render::Material* m_CollisionMaterial { Resources::find<Render::Material>("GameField_Collision") };
+	Render::Material* m_CollisionIndirectMaterial { Resources::find<Render::Material>("GameField_CollisionIndirect") };
+
+	// Enemy field and screen properties
+	Render::Material* m_EnemyBorderMaterial { Resources::find<Render::Material>("Screen_GameField") };
+	Render::ConstModel* m_MarkerSelectModel { Resources::find<Render::ConstModel>("Markers/Select") };
+	Render::ConstModel* m_MarkerShipModel { Resources::find<Render::ConstModel>("Markers/Ship") };
+	Render::ConstModel* m_MarkerFailModel { Resources::find<Render::ConstModel>("Markers/Fail") };
 
 	// Field square data for each field
 	mat4* m_FieldSquareTransforms;
-
-	// Field data required for translation
-	vec2 m_TopLeftPos;
-	float m_SqaureSize;
+	mat4 m_EdgeOceanTransforms[2];
 
 	// Border info
 	Render::IndexRange m_BorderRange;
@@ -549,15 +742,12 @@ private:
 	// Data for rendering ships
 	mat4 m_ShipScale;
 	Render::ConstModel* m_ShipModels[ShipTypeCount];
-	
-	// Ship collision
-	ShipClass m_LastProbedShipClass;
-	ShipRotation m_LastProbedShipOrientation;
-	PointComponent m_LastProbedPoint;
-	unordered_map<u8vec2, GmPlayerField::PlayFieldStatus> m_InvalidPlacementSquares { };
 
-	// Game manager
+	// Internal Manager (Logic)
 	const GameManager2& m_GameManager;
 	GmPlayerField* m_PlayerField;
+
+	// State
+	State m_State;
 
 };

@@ -9,17 +9,20 @@ module;
 #include <unordered_map>
 
 #include "Vertex.hpp"
-#include "util/ShaderConstants.hpp"
 #include "util/FNVHash.hpp"
 
 export module Draw.Render;
-import Draw.Renderer.Input;
+import Draw.Render.Input;
 
 namespace Draw::Render
 {
 
+	// Constants
+	export constexpr size_t BUFFERING_AMOUNT = 2;
+
 	// Shortcuts
 	using namespace std;
+	using namespace Input;
 
 	// -- Shader Stages --
 	// This class represents a shader stage in the opengl shader pipeline.
@@ -64,6 +67,17 @@ namespace Draw::Render
 		inline ShaderStage(GLenum type, const char* code)
 			: m_Bit(ShaderStagesImpl::toBit(type))
 		{
+
+#ifndef NDEBUG
+			// This is here because the AMD GPU driver wont tell you about
+			// errors in glCreateShaderProgramv in the debug callback!
+			// So, instead we compile the shader the old way.
+			GLuint tmpShader = glCreateShader(type);
+			glShaderSource(tmpShader, 1, &code, NULL);
+			glCompileShader(tmpShader);
+			glDeleteShader(tmpShader);
+#endif
+
 			m_Id = glCreateShaderProgramv(type, 1, &code);
 			if (type == GL_FRAGMENT_SHADER)
 				glProgramUniform1i(m_Id, TEXTURE_LOCATION, 0);
@@ -414,7 +428,7 @@ namespace Draw::Render
 			// Describe the vertex buffer attributes
 			for (GLuint i = 0; i < rowAmount; i++)
 				glVertexArrayAttribFormat(VertexArray, MODELMTX_ATTRIBINDEX + i, rowSize / sizeof(float), GL_FLOAT, GL_FALSE, (GLuint)(offsetof(InstanceData, modelMtx) + i * rowSize));
-			glVertexArrayAttribFormat(VertexArray, (GLuint)COLTILT_ATTRIBINDEX, sizeof(InstanceData::colorTilt) / sizeof(float), GL_FLOAT, GL_FALSE, offsetof(InstanceData, colorTilt));
+			glVertexArrayAttribFormat(VertexArray, COLTILT_ATTRIBINDEX, sizeof(InstanceData::colorTilt) / sizeof(float), GL_FLOAT, GL_FALSE, offsetof(InstanceData, colorTilt));
 
 			// Bind attributes to bindings
 			for (GLuint i = 0; i < rowAmount; i++)
@@ -686,7 +700,7 @@ namespace Draw::Render
 	{
 		
 		Draw::Render::ShaderPipeline* Pipeline { nullptr };
-		Draw::Render::Texture* Texture { nullptr };
+		const Draw::Render::Texture* Texture { nullptr };
 		glm::vec4 ColorTilt { };
 
 		bool operator==(const Draw::Render::Material& Other) const noexcept {
@@ -721,7 +735,10 @@ export SHIV_FNV_HASH(Draw::Render::IndexRange);
 
 namespace Draw::Render
 {
+
 	// -- Models --
+	// Contain vertices data matched to the materials.
+	// Used to draw complex meshes with multiple materials.
 
 	/**
 	  * @brief Represents a part of the loaded model with multiple materials attached to it.
@@ -806,39 +823,39 @@ namespace Draw::Render
 
 		constexpr uint32_t PlaneIndices[6]
 		{
-			0, 1, 3, // TL -> TR -> BL
-			1, 2, 3  // TR -> BR -> BL 
+			3, 1, 0, // BL -> TR -> TL
+			3, 2, 1  // BL -> BR -> TR 
 		};
 
 		const Vertex InitialPlaneVertices[4]
 		{
 
-			// Top-Left
+			// Bottom-Left
 			Vertex {
 				.position = { -0.5F, 0.0F, -0.5F },
+				.normal = { 0.0F, 1.0F, 0.0F },
+				.texCoords = { 0.0F, 0.0F }
+			},
+
+			// Top-Left
+			Vertex {
+				.position = { 0.5F, 0.0F, -0.5F },
 				.normal = { 0.0F, 1.0F, 0.0F },
 				.texCoords = { 0.0F, 1.0F }
 			},
 
 			// Top-Right
 			Vertex {
-				.position = { 0.5F, 0.0F, -0.5F },
+				.position = { 0.5F, 0.0F, 0.5F },
 				.normal = { 0.0F, 1.0F, 0.0F },
 				.texCoords = { 1.0F, 1.0F }
 			},
 
 			// Bottom-Right
 			Vertex {
-				.position = { 0.5F, 0.0F, 0.5F },
-				.normal = { 0.0F, 1.0F, 0.0F },
-				.texCoords = { 1.0F, 0.0F }
-			},
-
-			// Bottom-Left
-			Vertex {
 				.position = { -0.5F, 0.0F, 0.5F },
 				.normal = { 0.0F, 1.0F, 0.0F },
-				.texCoords = { 0.0F, 0.0F }
+				.texCoords = { 1.0F, 0.0F }
 			}
 
 		};
@@ -952,6 +969,9 @@ namespace Draw::Render
 		// Type definitions
 		using Mesh = typename Render::Mesh<StaticMappedBuffer<Vertex>, ConstMappedBuffer<uint32_t>>;
 
+		// Static object
+		static const IndexRange PlaneRange;
+
 		TextureFrameBuffer()
 			: FrameBuffer()
 			, m_PlaneMesh()
@@ -1038,9 +1058,10 @@ namespace Draw::Render
 			Vertex* vertices = m_PlaneMesh.Vertices().Pointer();
 			float UVx = m_Width / (float)m_UnderlyingLayout.Width,
 				  UVy = m_Height / (float)m_UnderlyingLayout.Height;
-			vertices[0].texCoords.x = UVx; // Top-Left
-			vertices[2].texCoords.y = UVy; // Bottom-Right
-			vertices[1].texCoords = { UVx, UVy }; // Top-Right
+			
+			vertices[1].texCoords.y = UVy; // Top-Left
+			vertices[3].texCoords.x = UVx; // Bottom-Right
+			vertices[2].texCoords = { UVx, UVy }; // Top-Right
 
 		}
 
@@ -1050,6 +1071,20 @@ namespace Draw::Render
 		TextureLayout m_UnderlyingLayout;
 		Texture m_UndelyingTexture;
 
+	};
+
+	const IndexRange TextureFrameBuffer::PlaneRange { 0, 6 };
+
+	// -- Indirect Command --
+	// This struct is used to provide draw data to the gpu indirectly.
+
+	export struct IndirectCommand
+	{
+		GLuint  count{ };
+		GLuint  instanceCount{ };
+		GLuint  firstIndex{ };
+		GLuint  baseVertex{ };
+		GLuint  baseInstance{ };
 	};
 
 }

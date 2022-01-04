@@ -100,7 +100,7 @@
     <ClCompile Include="EntryPoint.ixx" />
     <ClCompile Include="GameField.ixx" />
     <ClCompile Include="DearImGUI.ixx" />
-    <ClCompile Include="GameManagment.ixx" />
+    <ClCompile Include="GameManagement.ixx" />
     <ClCompile Include="scenes\GameScene.ixx" />
     <ClCompile Include="LimaBase.ixx" />
     <ClCompile Include="scenes\MenuScene.ixx" />
@@ -115,24 +115,26 @@
     <ClCompile Include="Renderer.ixx" />
     <ClCompile Include="Resources.ixx" />
     <ClCompile Include="Scene.ixx" />
-    <ClCompile Include="RendererInput.ixx" />
+    <ClCompile Include="RenderInput.ixx" />
     <ClCompile Include="ShipInfo.ixx" />
     <ClCompile Include="Timings.ixx" />
     <ClCompile Include="Window.ixx" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="BattleShip.h" />
-    <ClInclude Include="util\ShaderConstants.hpp" />
     <ClInclude Include="resource.h" />
     <ClInclude Include="util\FNVHash.hpp" />
     <ClInclude Include="Vertex.hpp" />
   </ItemGroup>
   <ItemGroup>
+    <None Include="res\shaders\crt.frag" />
     <None Include="res\models\teapot.obj">
       <FileType>Document</FileType>
     </None>
     <None Include="res\shaders\cel.frag" />
-    <None Include="res\shaders\cel.vert" />
+    <None Include="res\shaders\default.vert" />
+    <None Include="res\shaders\solid.frag" />
+    <None Include="res\shaders\water.frag" />
   </ItemGroup>
   <ItemGroup>
     <None Include="res\models\ship_destroyer.obj">
@@ -154,6 +156,20 @@
       <FileType>Document</FileType>
     </None>
     <None Include="res\models\ship_carrier.obj">
+      <FileType>Document</FileType>
+    </None>
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="res\models\marker_fail.obj">
+      <FileType>Document</FileType>
+    </None>
+    <None Include="res\models\marker_select.obj">
+      <FileType>Document</FileType>
+    </None>
+    <None Include="res\models\marker_ship.obj">
+      <FileType>Document</FileType>
+    </None>
+    <None Include="res\models\screen_frame.obj">
       <FileType>Document</FileType>
     </None>
   </ItemGroup>

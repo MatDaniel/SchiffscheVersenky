@@ -1,16 +1,18 @@
 module;
 
+#include <memory>
 #include <functional>
 
 export module Draw.NetEngine;
 
 // Network & Game Management
-import GameManagment;
+import GameManagement;
 import Network.Client;
 import DispatchRoutine;
-
-using namespace GameManagment;
+using namespace GameManagement;
 using namespace Network;
+
+// Misc
 using namespace std;
 
 namespace
@@ -22,9 +24,11 @@ namespace
 		NS_CONNECTED
 	};
 
+	::Client::ManagementDispatchState s_ManagementState;
+
 	NetState s_InternalNetworkState;
-	function<void()> s_SuccessCallback;
 	function<void()> s_FailureCallback;
+	function<void()> s_SuccessCallback;
 
 }
 
@@ -42,6 +46,9 @@ export namespace Draw::NetEngine
 		// Setup callbacks
 		s_FailureCallback = move(FailureCallback);
 		s_SuccessCallback = move(SuccessCallback);
+
+		// Clear State
+		s_ManagementState = { };
 
 		// Connect
 		Network::Client::NetworkManager2::CreateObject(
@@ -71,22 +78,21 @@ export namespace Draw::NetEngine
 
 		case NS_CONNECTING:
 			{
-				::Client::ManagmentDispatchState State{};
-
-
 				auto ResponseOption = ServerObject.ExecuteNetworkRequestHandlerWithCallback(
 					::Client::ManagementDispatchRoutine,
-					(void*)&State);
+					(void*)&s_ManagementState);
 
 				if (ResponseOption < 0)
 				{
 					s_InternalNetworkState = NS_NONE;
 					s_FailureCallback();
 				}
-				else if (State.StateReady)
+				else if (s_ManagementState.StateReady)
 				{
-					State.StateReady = false;
-					GameManager2::CreateObject(State.InternalFieldDimensions, State.NumberOFShipsPerType);
+					s_ManagementState.StateReady = false;
+					GameManager2::CreateObject(
+						s_ManagementState.InternalFieldDimensions,
+						s_ManagementState.NumberOFShipsPerType);
 					s_InternalNetworkState = NS_CONNECTED;
 					s_SuccessCallback();
 				}
@@ -104,6 +110,15 @@ export namespace Draw::NetEngine
 			Network::Client::NetworkManager2::ManualReset();
 			break;
 
+		}
+	}
+
+	void CleanUp()
+	{
+		if (s_InternalNetworkState != NS_NONE)
+		{
+			s_InternalNetworkState = NS_NONE;
+			Network::Client::NetworkManager2::ManualReset();
 		}
 	}
 

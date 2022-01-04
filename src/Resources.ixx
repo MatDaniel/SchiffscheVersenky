@@ -22,14 +22,12 @@ module;
 #include <string>
 #include <span>
 
-#include "util/ShaderConstants.hpp"
 #include "util/FNVHash.hpp"
 #include "Vertex.hpp"
 
 #include "resource.h"
 
 export module Draw.Resources;
-import Draw.Renderer.Input;
 import Draw.Render;
 import Game.ShipInfo;
 using namespace Draw;
@@ -470,11 +468,17 @@ export namespace Draw::Resources
 	{
 
 		// Shader Stages
-		auto* CelVertShader = Resources::emplace<Render::ShaderStage>("Vert/Cel", Loaders::LoadStage(GL_VERTEX_SHADER, Resource(IDR_VSHA_CEL)));
+		auto* DefaultVertShader = Resources::emplace<Render::ShaderStage>("Vert/Default", Loaders::LoadStage(GL_VERTEX_SHADER, Resource(IDR_VSHA_DEFAULT)));
 		auto* CelFragShader = Resources::emplace<Render::ShaderStage>("Frag/Cel", Loaders::LoadStage(GL_FRAGMENT_SHADER, Resource(IDR_FSHA_CEL)));
+		auto* CrtFragShader = Resources::emplace<Render::ShaderStage>("Frag/Crt", Loaders::LoadStage(GL_FRAGMENT_SHADER, Resource(IDR_FSHA_CRT)));
+		auto* SolidFragShader = Resources::emplace<Render::ShaderStage>("Frag/Solid", Loaders::LoadStage(GL_FRAGMENT_SHADER, Resource(IDR_FSHA_SOLID)));
+		auto* WaterFragShader = Resources::emplace<Render::ShaderStage>("Frag/Water", Loaders::LoadStage(GL_FRAGMENT_SHADER, Resource(IDR_FSHA_WATER)));
 
 		// Shader Pipelines
-		auto* CelProgram = Resources::emplace<Render::ShaderPipeline>("Cel", CelVertShader, CelFragShader);
+		auto* CelProgram = Resources::emplace<Render::ShaderPipeline>("Cel", DefaultVertShader, CelFragShader);
+		auto* CrtProgram = Resources::emplace<Render::ShaderPipeline>("Crt", DefaultVertShader, CrtFragShader);
+		auto* SolidProgram = Resources::emplace<Render::ShaderPipeline>("Solid", DefaultVertShader, SolidFragShader);
+		auto* WaterProgram = Resources::emplace<Render::ShaderPipeline>("Water", DefaultVertShader, WaterFragShader);
 
 		// Texture
 		constexpr char DummyPixels[3] { 0, 0, 0 };
@@ -482,13 +486,24 @@ export namespace Draw::Resources
 		auto* DummyTexture = Resources::emplace<Render::Texture>("Dummy", DummyLayout);
 
 		// Materials
-		Resources::emplace<Render::Material>("Border", CelProgram, DummyTexture, glm::vec4(1.0F, 1.0F, 1.0F, 1.0F));
-		Resources::emplace<Render::Material>("Water", CelProgram, DummyTexture, glm::vec4(0.18F, 0.33F, 1.0F, 1.0F));
 		Resources::emplace<Render::Material>("Iron", CelProgram, DummyTexture, glm::vec4(0.8F, 0.8F, 0.8F, 1.0F));
+		Resources::emplace<Render::Material>("GameField_Water", WaterProgram, DummyTexture, glm::vec4(0.0F, 0.0F, 1.0F, 0.5F));
+		Resources::emplace<Render::Material>("GameField_Border", WaterProgram, DummyTexture, glm::vec4(1.0F, 1.0F, 1.0F, 0.85F));
+		Resources::emplace<Render::Material>("GameField_Collision", WaterProgram, DummyTexture, glm::vec4(1.0F, 0.0F, 0.0F, 1.0F));
+		Resources::emplace<Render::Material>("GameField_CollisionIndirect", WaterProgram, DummyTexture, glm::vec4(1.0F, 1.0F, 0.0F, 1.0F));
+		Resources::emplace<Render::Material>("Screen_PostProcessing", CrtProgram, nullptr, glm::vec4());
+		Resources::emplace<Render::Material>("Screen_GameField", SolidProgram, DummyTexture, glm::vec4(0.19F, 0.75F, 0.25F, 1.0F));
+		Resources::emplace<Render::Material>("Screen_MarkerSelect", SolidProgram, DummyTexture, glm::vec4(0.725F, 0.0F, 0.0F, 1.0F));
+		Resources::emplace<Render::Material>("Screen_MarkerShip", SolidProgram, DummyTexture, glm::vec4(0.725F, 0.0F, 0.0F, 1.0F));
+		Resources::emplace<Render::Material>("Screen_MarkerFail", SolidProgram, DummyTexture, glm::vec4(1.0F, 1.0F, 1.0F, 1.0F));
 
 		// Models
 		for (size_t i = 0; i < ShipTypeCount; i++)
 			Resources::emplace<Render::ConstModel>(ShipInfos[i].resName, Loaders::LoadModel(Resource(ShipInfos[i].resId)));
+		Resources::emplace<Render::ConstModel>("Markers/Select", Loaders::LoadModel(Resource(IDR_MESH_MARK_SLCT)));
+		Resources::emplace<Render::ConstModel>("Markers/Ship", Loaders::LoadModel(Resource(IDR_MESH_MARK_SHIP)));
+		Resources::emplace<Render::ConstModel>("Markers/Fail", Loaders::LoadModel(Resource(IDR_MESH_MARK_FAIL)));
+		Resources::emplace<Render::ConstModel>("ScreenFrame", Loaders::LoadModel(Resource(IDR_MESH_SCRN_FRAM)));
 
 	}
 

@@ -6,8 +6,11 @@ LANGUAGE LANG_NEUTRAL, SUBLANG_NEUTRAL
 #pragma code_page(1252)
 
 // Shaders
-IDR_VSHA_CEL        RT_RCDATA "res\\shaders\\cel.vert"
+IDR_VSHA_DEFAULT    RT_RCDATA "res\\shaders\\default.vert"
 IDR_FSHA_CEL        RT_RCDATA "res\\shaders\\cel.frag"
+IDR_FSHA_CRT        RT_RCDATA "res\\shaders\\crt.frag"
+IDR_FSHA_SOLID      RT_RCDATA "res\\shaders\\solid.frag"
+IDR_FSHA_WATER      RT_RCDATA "res\\shaders\\water.frag"
 
 // Meshes
 IDR_MESH_TEAPOT     RT_RCDATA "res\\models\\teapot.obj"
@@ -16,3 +19,7 @@ IDR_MESH_SHIP_SUBM  RT_RCDATA "res\\models\\ship_submarine.obj"
 IDR_MESH_SHIP_CRUS  RT_RCDATA "res\\models\\ship_cruiser.obj"
 IDR_MESH_SHIP_BTLE  RT_RCDATA "res\\models\\ship_battleship.obj"
 IDR_MESH_SHIP_CARR  RT_RCDATA "res\\models\\ship_carrier.obj"
+IDR_MESH_MARK_SHIP  RT_RCDATA "res\\models\\marker_ship.obj"
+IDR_MESH_MARK_FAIL  RT_RCDATA "res\\models\\marker_fail.obj"
+IDR_MESH_MARK_SLCT  RT_RCDATA "res\\models\\marker_select.obj"
+IDR_MESH_SCRN_FRAM  RT_RCDATA "res\\models\\screen_frame.obj"

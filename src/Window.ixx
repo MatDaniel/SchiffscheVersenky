@@ -106,10 +106,10 @@ export namespace Window
 	namespace Properties
 	{
 
-		auto& Handle = s_Handle;
-		const auto& WindowSize = s_WindowSize;
-		const auto& CursorPos = s_CursorPos;
-		const auto& FrameBuffer = s_FrameBuffer;
+		auto& const Handle = s_Handle;
+		const auto& const WindowSize = s_WindowSize;
+		const auto& const CursorPos = s_CursorPos;
+		const auto& const FrameBuffer = s_FrameBuffer;
 
 	}
 
@@ -127,6 +127,9 @@ export namespace Window
 		glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 6);
 		glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
 		glfwWindowHint(GLFW_SAMPLES, 16); // MSAA - TODO: Do msaa manually
+#ifndef NDEBUG
+		glfwWindowHint(GLFW_OPENGL_DEBUG_CONTEXT, GL_TRUE);
+#endif
 
 #ifdef __APPLE__
 		glfwWindowHint(GLFW_OPENGL_FORWARD_COMPAT, GL_TRUE); // Required for Mac
