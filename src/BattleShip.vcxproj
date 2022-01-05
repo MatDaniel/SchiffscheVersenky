@@ -101,6 +101,7 @@
     <ClCompile Include="GameField.ixx" />
     <ClCompile Include="DearImGUI.ixx" />
     <ClCompile Include="GameManagement.ixx" />
+    <ClCompile Include="GameManagementEx.ixx" />
     <ClCompile Include="scenes\GameScene.ixx" />
     <ClCompile Include="LimaBase.ixx" />
     <ClCompile Include="scenes\MenuScene.ixx" />

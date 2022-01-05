@@ -126,15 +126,17 @@ export namespace Network::Server {
 			}
 		}
 		
-		void RaiseStatusMessageOrComplete(                     // Raises a status on the specified remote of specified type
-			NwRequestPacket&                   NetworkRequest, // A reference to an NRP to raise the status on
-			ShipSockControl::ShipControlStatus StatusMessage   // The status to raise on the remote
+		void RaiseStatusMessageOrComplete(                      // Raises a status on the specified remote of specified type
+			NwRequestPacket&                   NetworkRequest,  // A reference to an NRP to raise the status on
+			ShipSockControl::ShipControlStatus StatusMessage,   // The status to raise on the remote
+			size_t                             UniqueIdentifier // The id of an incoming request requiering handling
 		) {
 			TRACE_FUNTION_PROTO;
 
 			DirectSendPackageOutboundOrComplete(
 				NetworkRequest,
 				(const ShipSockControl&)ShipSockControl {
+					.SpecialRequestIdentifier = UniqueIdentifier,
 					.ControlCode = ShipSockControl::RAISE_STATUS_MESSAGE,
 					.ShipControlRaisedStatus = StatusMessage
 			});
@@ -188,6 +190,13 @@ export namespace Network::Server {
 			
 			// This has to close all ports etc and completely shut down the server (TO BE IMPLEMENTED)
 			SPDLOG_LOGGER_INFO(NetworkLog, "Network manager destroyed, cleaning up sockets");
+			
+			// for (auto NextIterator, Iterator = ConnectedClients.begin();
+			// 	Iterator != ConnectedClients.end();
+			// 	Iterator = NextIterator) {
+			// 
+			// 	DispatchDisconnectService()
+			// }
 
 		}
 

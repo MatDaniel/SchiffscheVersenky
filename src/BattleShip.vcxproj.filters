@@ -87,9 +87,6 @@
     <ClCompile Include="NetworkServerControl.ixx">
       <Filter>Source Files\Network</Filter>
     </ClCompile>
-    <ClCompile Include="GameManagement.ixx">
-      <Filter>Source Files</Filter>
-    </ClCompile>
     <ClCompile Include="ShipInfo.ixx">
       <Filter>Source Files\Utility</Filter>
     </ClCompile>
@@ -110,6 +107,12 @@
     </ClCompile>
     <ClCompile Include="scenes\GameScene.ixx">
       <Filter>Source Files\Scenes</Filter>
+    </ClCompile>
+    <ClCompile Include="GameManagement.ixx">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="GameManagementEx.ixx">
+      <Filter>Source Files</Filter>
     </ClCompile>
   </ItemGroup>
   <ItemGroup>

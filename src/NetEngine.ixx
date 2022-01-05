@@ -9,6 +9,7 @@ export module Draw.NetEngine;
 import GameManagement;
 import Network.Client;
 import DispatchRoutine;
+
 using namespace GameManagement;
 using namespace Network;
 
@@ -93,6 +94,10 @@ export namespace Draw::NetEngine
 					GameManager2::CreateObject(
 						s_ManagementState.InternalFieldDimensions,
 						s_ManagementState.NumberOFShipsPerType);
+
+					::Client::InstallGameManagerInstrumentationCallbacks(
+						Network::Client::NetworkManager2::GetInstancePointer());
+
 					s_InternalNetworkState = NS_CONNECTED;
 					s_SuccessCallback();
 				}

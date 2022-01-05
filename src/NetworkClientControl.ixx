@@ -36,9 +36,6 @@ export namespace Network::Client {
 			throw this;
 		}
 
-		// Optional contained package, dispatched with INCOMING_PACKET
-		ShipSockControl* IoControlPacketData; 
-
 	private:
 		NwRequestPacket() = default; // Make the constructor private so only the dispatcher can allocate NRP's
 	};
@@ -70,10 +67,11 @@ export namespace Network::Client {
 			STATUS_SOCKET_CONNECTED // Signals that a client successfully connected to the server
 			                        // it is now in a fully operational state until disconnect
 		};
-		using MajorFunction = void(          // this has to handle the networking requests being both capable of reading and sending requests
-			NetworkManager2* NetworkDevice,  // a pointer to the NetWorkIoController responsible of said request packet
-			NwRequestPacket& NetworkRequest, // a reference to a network request packet describing the current request
-			void*            UserContext);   // A pointer to caller defined data thats forwarded to the callback in every call, could be the GameManager class or whatever
+		using MajorFunction = void(           // this has to handle the networking requests being both capable of reading and sending requests
+			NetworkManager2* NetworkDevice,   // a pointer to the NetWorkIoController responsible of said request packet
+			NwRequestPacket& NetworkRequest,  // a reference to a network request packet describing the current request
+			void*            UserContext,     // A pointer to caller defined data thats forwarded to the callback in every call, could be the GameManager class or whatever
+			ShipSockControl* RequestPackage); // TODO:
 		using MajorFunction_t = add_pointer_t<MajorFunction>;
 
 		~NetworkManager2() {
@@ -86,6 +84,34 @@ export namespace Network::Client {
 					WSAGetLastError());
 			SPDLOG_LOGGER_INFO(NetworkLog, "Client network manager destroyed");
 		}
+
+		/// LEGACY: NOT REQUIRED IN THE CLIENT AS THERE IS NO CLIENT MANAGER ONLY A SINGLE CONENCTION
+		//          THREFORE NO SCOPE DISPATCH IS REQUIRED, THIS IS LEFT AS A RELIC TO LOOK AT
+		//
+		// DispatchStatus DispatchCallbackWithNrpScopeEx( // Allows to dispatch a callback with a shell NRP in scope,
+		// 											   // which grants access to direct network io functions 
+		// 	function<MajorFunction> IoServiceRoutine,  // a user provided callback responsible for handling/completing requests
+		// 	void*                   UserContext		   // some user provided polymorphic value forwarded to the handler routine
+		// ) {
+		// 	TRACE_FUNTION_PROTO;
+		// 
+		// 	NwRequestPacket ShellRequest{};
+		// 	ShellRequest.IoRequestStatus = NwRequestPacket::STATUS_REQUEST_NOT_HANDLED;
+		// 	auto RequestStatus = RequestDispatchAndReturn(IoServiceRoutine,
+		// 		UserContext,
+		// 		ShellRequest);
+		// 	if (RequestStatus < 0) {
+		// 
+		// 		// The shell dispatch callback failed to handle the NRP, this will cause a disconnect of the client
+		// 		SPDLOG_LOGGER_ERROR(NetworkLog, "Dispatched shell callback failed to handle NRP, causing disconnect");
+		// 		DispatchDisconnectService(IoServiceRoutine,
+		// 			UserContext);
+		// 		return STATUS_SOCKET_DISCONNECTED;
+		// 	}
+		// 
+		// 	return STATUS_DISPATCH_OK;
+		// }
+
 
 		DispatchStatus
 		ExecuteNetworkRequestHandlerWithCallback(     // Probes requests and prepares IORP's for asynchronous networking
@@ -144,18 +170,7 @@ export namespace Network::Client {
 					// This can be happily ignored cause I dont use OOB data :)
 					SPDLOG_LOGGER_DEBUG(NetworkLog, "Out of boud, data is ready for read");
 				}
-
-				auto BuildNetworkRequestPacket = [this](         // Helper function for building NRP's
-					NwRequestPacket::NwServiceCtl IoControlCode, //
-					ShipSockControl*              InternalPacket //
-					) -> NwRequestPacket {
-						NwRequestPacket NetworkRequest{};
-						NetworkRequest.IoControlCode = IoControlCode;
-						NetworkRequest.IoRequestStatus = NwRequestPacket::STATUS_REQUEST_NOT_HANDLED;
-						NetworkRequest.IoControlPacketData = InternalPacket;
-						return NetworkRequest;
-				};
-
+				
 				// Check for readability and dispatch appropriate handling
 				if (DescriptorTable[0].fd_count) {
 
@@ -219,11 +234,11 @@ export namespace Network::Client {
 								// Dispatch message as we know the current contained buffer content is large enough,
 								// to contain at least one ship control packet, therefore it can be directly referenced
 								auto NetworkRequest = BuildNetworkRequestPacket(
-									NwRequestPacket::INCOMING_PACKET,
-									PackageStreamPointer);
+									NwRequestPacket::INCOMING_PACKET);
 								auto IoStatus = RequestDispatchAndReturn(IoServiceRoutine,
 									UserContext,
-									NetworkRequest);
+									NetworkRequest,
+									PackageStreamPointer);
 
 								// Check for dispatch errors, if any we terminate the session and notify the caller
 								if (IoStatus < 0) {
@@ -338,6 +353,37 @@ export namespace Network::Client {
 				RequestPackage.ControlCode);
 		}
 
+		void DispatchDisconnectService(               // Dispatches a disconnect notification and terminates the connection
+			function<MajorFunction> IoServiceRoutine, // The passed routine responsible for handling
+			void*                   UserContext       // An associated user context that should be passed along to the routine
+		) {
+			TRACE_FUNTION_PROTO;
+
+			// Build basic disconnect packet
+			NwRequestPacket NetworkRequest{};
+			NetworkRequest.IoControlCode = NwRequestPacket::SOCKET_DISCONNECTED;
+			NetworkRequest.IoRequestStatus = NwRequestPacket::STATUS_REQUEST_NOT_HANDLED;
+
+			// Dispatch disconnect notification to client
+			auto RequestStatus = RequestDispatchAndReturn(IoServiceRoutine,
+				UserContext,
+				NetworkRequest,
+				nullptr);
+			if (RequestStatus < 0)
+				throw (SPDLOG_LOGGER_CRITICAL(NetworkLog, "YOu fucked up to fuckiung hanle disconnet fucking faggot"),
+					runtime_error("Are you even trying anymore? HOW THE FUCK DID WE END UP HERE"));
+
+			// Schedule ourself for automatic deletion,
+			// THIS IS A SUICIDE MOVE, DO NOT REPLICATE !
+			// Its only possible cause the underlying instance manager
+			// dynamically allocates this and manages the object,
+			// after this call no members are touched 
+			// and all functions up to this point will immediately return.
+			SPDLOG_LOGGER_WARN(NetworkLog, "Warning this object {}(NetworkManager Instance) is being deleted",
+				(void*)this);
+			this->ManualReset();
+		}
+
 	private:
 		NetworkManager2(
 			const char*  ServerName = DefaultServerAddress, // aka ipv4 address (may add ipv6 support)
@@ -408,11 +454,21 @@ export namespace Network::Client {
 				RemoteServer);
 		}
 
+		NwRequestPacket BuildNetworkRequestPacket(      // Helper function for building NRP's
+			NwRequestPacket::NwServiceCtl IoControlCode //
+		) {
+			NwRequestPacket NetworkRequest{};
+			NetworkRequest.IoControlCode = IoControlCode;
+			NetworkRequest.IoRequestStatus = NwRequestPacket::STATUS_REQUEST_NOT_HANDLED;
+			return NetworkRequest;
+		};
+
 		NwRequestPacket::NwRequestStatus
 		RequestDispatchAndReturn(                     // Dispatches and catches a network request
 			function<MajorFunction> IoServiceRoutine, // The passed routine responsible for handling
 			void*                   UserContext,      // The passed user context
-			NwRequestPacket&        NetworkRequest    // A NRP to extend and dispatch
+			NwRequestPacket&        NetworkRequest,   // A NRP to extend and dispatch
+			ShipSockControl*        RequestPackage    // An optional pointer to a control package
 		) {
 			TRACE_FUNTION_PROTO;
 
@@ -422,7 +478,8 @@ export namespace Network::Client {
 			try {
 				IoServiceRoutine(this,
 					NetworkRequest,
-					UserContext);
+					UserContext,
+					RequestPackage);
 
 				// If execution resumes here the packet was not completed, server has to terminate,
 				// as the state of several components could now be indeterminate 
@@ -443,36 +500,6 @@ export namespace Network::Client {
 			}
 		}
 
-		void DispatchDisconnectService(               // Dispatches a disconnect notification and terminates the connection
-			function<MajorFunction> IoServiceRoutine, // The passed routine responsible for handling
-			void*                   UserContext       // An associated user context that should be passed along to the routine
-		) {
-			TRACE_FUNTION_PROTO;
-
-			// Build basic disconnect packet
-			NwRequestPacket NetworkRequest{};
-			NetworkRequest.IoControlCode = NwRequestPacket::SOCKET_DISCONNECTED;
-			NetworkRequest.IoRequestStatus = NwRequestPacket::STATUS_REQUEST_NOT_HANDLED;
-
-			// Dispatch disconnect notification to client
-			auto RequestStatus = RequestDispatchAndReturn(
-				IoServiceRoutine,
-				UserContext,
-				NetworkRequest);
-			if (RequestStatus < 0)
-				throw (SPDLOG_LOGGER_CRITICAL(NetworkLog, "YOu fucked up to fuckiung hanle disconnet fucking faggot"),
-					runtime_error("Are you even trying anymore? HOW THE FUCK DID WE END UP HERE"));
-
-			// Schedule ourself for automatic deletion,
-			// THIS IS A SUICIDE MOVE, DO NOT REPLICATE !
-			// Its only possible cause the underlying instance manager
-			// dynamically allocates this and manages the object,
-			// after this call no members are touched 
-			// and all functions up to this point will immediately return.
-			SPDLOG_LOGGER_WARN(NetworkLog, "Warning this object {}(NetworkManager Instance) is being deleted",
-				(void*)this);
-			this->ManualReset();
-		}
 
 
 		// Receiver/sender stream context

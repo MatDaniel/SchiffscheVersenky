@@ -17,8 +17,8 @@ import DispatchRoutine;
 import Network.Server;
 import Network.Client;
 using namespace Network;
-import GameManagment;
-using namespace GameManagment;
+import GameManagement;
+using namespace GameManagement;
 
 
 // Drawing and Rendering (Daniel's job)
@@ -46,11 +46,17 @@ void GmManagerUnitTests() {
 	PlaceShipStatus = MyField->PlaceShipSecureCheckInterference(
 		ShipClass::CARRIER_5x1,
 		ShipRotation::FACING_WEST,
-		PointComponent{ 1, 5 });
+		PointComponent{ 7, 5 });
 	PlaceShipStatus = MyField->PlaceShipSecureCheckInterference(
-		ShipClass::CARRIER_5x1,
+		ShipClass::SUBMARINE_3x1,
 		ShipRotation::FACING_WEST,
-		PointComponent{ 8, 8 });
+		PointComponent{ 7, 8 });
+
+
+	Debug_PrintGmPlayerField(*MyField);
+	MyField->RemoveShipFromField(PointComponent{ 3, 4 });
+	Debug_PrintGmPlayerField(*MyField);
+
 
 	MyField->StrikeCellAndUpdateShipList(PointComponent{ 4, 6 });
 	MyField->StrikeCellAndUpdateShipList(PointComponent{ 3, 7 });
@@ -83,6 +89,7 @@ export int main(
 	try {
 		LayerLog = spdlog::stdout_color_st("Layer");
 		GameLog = spdlog::stdout_color_st("Game");
+		GameLogEx = spdlog::stdout_color_st("GameEx");
 		NetworkLog = spdlog::stdout_color_st("Network");
 		EngineLog = spdlog::stdout_color_st("Engine");
 		WindowLog = spdlog::stdout_color_st("Window");
@@ -144,7 +151,7 @@ export int main(
 			SPDLOG_LOGGER_INFO(LayerLog, "Entering server management mode, ready for IO");
 			for (;;) {
 				auto Result = ShipSocketObject.PollNetworkConnectionsAndDispatchCallbacks(
-					::Server::ManagmentDispatchRoutine,
+					::Server::ManagementDispatchRoutine,
 					nullptr);
 				if (Result < 0)
 					return SPDLOG_LOGGER_ERROR(LayerLog, "An error with id: {} ocured on in the callback dispatch routine",
@@ -210,19 +217,20 @@ export int main(
 	// Last primary level scope error filter
 	catch (const spdlog::spdlog_ex& ExceptionInformation) {
 
-		SPDLOG_WARN("Spdlog threw an exception: \"{}\"",
+		SPDLOG_ERROR("Spdlog threw an exception: \"{}\"",
 			ExceptionInformation.what());
 		return EXIT_FAILURE;
 	}
 	catch (const std::exception& ExceptionInformation) {
 
-		SPDLOG_LOGGER_ERROR(LayerLog, "StandardException of: {}",
+		SPDLOG_LOGGER_CRITICAL(LayerLog, "StandardException thrown: {}",
 			ExceptionInformation.what());
 		return EXIT_FAILURE;
 	}
 	catch (...) {
 
-		SPDLOG_LOGGER_ERROR(LayerLog, "An unknown exception was thrown, unable to handle");
+		SPDLOG_LOGGER_CRITICAL(LayerLog, "An unknown exception was thrown, unable to handle");
+		__debugbreak();
 		return EXIT_FAILURE;
 	}
 

@@ -220,19 +220,20 @@ export namespace Network {
 		REQUIRED_BITS_PRIMARY = 2,
 	};
 	CellState& operator |=(CellState& Lhs,
-		const CellState& Rhs) {
+		CellState Rhs) {
 		TRACE_FUNTION_PROTO;
 
 		using CellState_t = underlying_type<CellState>::type;
 		return (CellState&)((CellState_t&)Lhs |= (CellState_t)Rhs);
 	}
 
-
-
 	// Server and Client may both receive as well as send this struct to remotes
 	struct ShipSockControl {
 		size_t SizeOfThisStruct = sizeof(*this); // Has to specify the size of the this struct including the flexible array member content,
 												 // this is used for transmitting data, if this field is not set properly the send controls will probably fail
+		size_t SpecialRequestIdentifier;         // A special id given to asynchronous requests that may need server/client confirmation
+		                                         // and response treatment
+
 		enum ShipControlStatus {
 			STATUS_INVALID_PLACEMENT = -2000,
 			STATUS_NOT_YOUR_TURN,
@@ -348,4 +349,9 @@ export namespace Network {
 
 		static inline atomic<uint32_t> RefrenceCounter = 0;
 	};
+
+	size_t GenerateUniqueIdentifier() {
+		static size_t Identifier = 1;
+		return Identifier++;
+	}
 }
