@@ -33,8 +33,8 @@ namespace Draw::Scenes
 	{
 	public:
 
-		GameScene(unique_ptr<GameField>&& gameField)
-			: m_GameField(move(gameField))
+		GameScene(GameField* GameField)
+			: m_GameField(GameField)
 		{
 		}
 
@@ -133,6 +133,7 @@ namespace Draw::Scenes
 
 		void OnInit() override
 		{
+			m_GameField->Game_UpdateState();
 			Init_ScreenRendering();
 			Init_SceneRendering();
 			Init_SceneScreenRendering();
@@ -152,9 +153,10 @@ namespace Draw::Scenes
 				}
 				m_ScreenBackgroundRenderer.Render();
 				{
+					m_GameField->Enemy_UpdateCursorPosition(m_SceneScreenData, m_ScreenData, m_ScreenTransformation);
 					m_GameField->Enemy_DrawHits(m_ScreenForegroundRenderer);
-					auto EnemyFieldCursor = m_GameField->Enemy_GetCursorPosition(m_SceneScreenData, m_ScreenData, m_ScreenTransformation);
-					m_GameField->Enemy_Selection(m_ScreenForegroundRenderer, EnemyFieldCursor);
+					m_GameField->Enemy_Selection(m_ScreenForegroundRenderer);
+					m_GameField->Enemy_DrawShips(m_ScreenForegroundRenderer);
 				}
 				m_ScreenForegroundRenderer.Render();
 			}
@@ -200,9 +202,17 @@ namespace Draw::Scenes
 			}
 		}
 
+		void OnMouseButton(int button, int action, int mods) override
+		{
+			if (action == GLFW_PRESS && button == GLFW_MOUSE_BUTTON_1 && m_IsScreenOpen)
+			{
+				m_GameField->Enemy_Hit();
+			}
+		}
+
 	private:
 
-		unique_ptr<GameField> m_GameField;
+		GameField* m_GameField;
 
 		TextureFrameBuffer m_ScreenTarget{ TextureLayout(1, 1, 3).WrapRepeat().FilterNearest() };
 		SceneData m_ScreenData { &m_ScreenTarget };

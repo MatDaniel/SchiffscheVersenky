@@ -126,7 +126,9 @@ namespace Draw::Scenes
 							},
 							[]() {
 								/* Success Callback */
-								Scene::Load(make_unique<FieldSetupScene>());
+								Scene::Load(make_unique<FieldSetupScene>(
+									NetEngine::Properties::GameField.get()
+								));
 							}))
 						{
 							m_IsConnecting = true;
@@ -145,12 +147,12 @@ namespace Draw::Scenes
 					m_FailedToConnect = false;
 				}
 				ImGui::SameLine();
-				if (ImGui::Button("[TEST] Without Server"))
+				if (ImGui::Button("[Test] Without Server"))
 				{
-					PointComponent FieldDimensions{ 12, 12 };
-					ShipCount MaxShipsOnField{ 2, 2, 2, 2, 2 };
-					GameManager2::CreateObject(FieldDimensions, MaxShipsOnField);
-					Scene::Load(make_unique<FieldSetupScene>());
+					NetEngine::ConnectWithoutServer();
+					Scene::Load(make_unique<FieldSetupScene>(
+						NetEngine::Properties::GameField.get()
+					));
 				}
 				ImGui::EndDisabled();
 

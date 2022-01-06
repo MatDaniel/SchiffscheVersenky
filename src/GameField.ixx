@@ -84,6 +84,9 @@ void appendSquare(float topEdge, float botEdge, float leftEdge, float rightEdge,
 
 }
 
+// Types
+export using CursorPosition = typename vec2;
+
 using NoState = typename monostate;
 
 struct SetupState
@@ -92,8 +95,11 @@ struct SetupState
 	// Constructor
 	SetupState() = default;
 
+	// Mouse
+	CursorPosition CursorPos;
+	ShipPosition SelectedShipPos;
+
 	// Properties for selection
-	ShipCount PlacedShips{ 0, 0, 0, 0, 0 };
 	ShipType SelectedShip{ Draw::ST_DESTROYER };
 
 	// Properties for collision
@@ -110,20 +116,27 @@ struct SetupState
 
 };
 
-using State = typename variant<NoState, SetupState>;
+struct GameState
+{
+
+	// Mouse
+	bool HideCursor { true };
+	CursorPosition CursorPos;
+
+};
+
+using State = typename variant<NoState, SetupState, GameState>;
 
 export class GameField
 {
 public:
 
-	// Types
-	using CursorPosition = typename vec2;
-
-	GameField(const GameManager2& manager, GmPlayerField* playerField)
+	GameField(const GameManager2& manager, GmPlayerField* playerField, GmPlayerField* opponentField)
 		: m_Width(manager.InternalFieldDimensions.XComponent)
 		, m_Height(manager.InternalFieldDimensions.YComponent)
 		, m_GameManager(manager)
 		, m_PlayerField(playerField)
+		, m_OpponentField(opponentField)
 	{
 
 		assert(m_Width != 0 && m_Height != 0); // Size is required to be at least 1x1
@@ -227,6 +240,13 @@ public:
 			for (uint32_t x = 0; x < m_Width; x++, i++)
 				m_FieldSquareTransforms[i] = glm::scale(TranslateByIdentity({ x + 0.5F, y + 0.5F }), { squareScale, squareScale, squareScale });
 
+		// Setup hit line
+		for (uint8_t i = 0; i < Draw::ShipTypeCount; i++)
+		{
+			float markerHitScale = m_SqaureSize * ShipInfos[i].size - borderAxis;
+			m_MarkerHitTransforms[i] = glm::scale(mat4(1.0F), { markerHitScale, squareScale, squareScale * 0.2F });
+		}
+
 		// Calculate ship scaling
 		float ShipScaleValue = m_SqaureSize / 10.0F;
 		m_ShipScale = glm::scale(mat4(1.0F), vec3(ShipScaleValue, ShipScaleValue, ShipScaleValue));
@@ -296,6 +316,11 @@ public:
 	// Game
 	//------
 
+	void Game_UpdateState()
+	{
+		m_State.emplace<GameState>();
+	}
+	
 	void Game_DrawSquares(Renderer& Renderer) const
 	{
 		DrawSquares(Renderer, [this](auto x, auto y) -> Render::Material* {
@@ -313,10 +338,56 @@ public:
 
 	void Enemy_DrawHits(Renderer& renderer)
 	{
-		renderer.Draw(m_FieldSquareTransforms[index(0, 0)], m_MarkerShipModel);
-		renderer.Draw(m_FieldSquareTransforms[index(4, 3)], m_MarkerFailModel);
-		renderer.Draw(m_FieldSquareTransforms[index(2, 11)], m_MarkerFailModel);
-		renderer.Draw(m_FieldSquareTransforms[index(6, 10)], m_MarkerShipModel);
+		size_t i = 0;
+		for (uint8_t y = 0; y < m_Height; y++)
+			for (uint8_t x = 0; x < m_Width; x++, i++)
+			{
+				PointComponent TargetPosition {
+					.XComponent = x,
+					.YComponent = y
+				};
+				switch (m_OpponentField->GetCellStateByCoordinates(TargetPosition))
+				{
+				case CELL_WAS_SHOT_EMPTY:
+					renderer.Draw(m_FieldSquareTransforms[i], m_MarkerFailModel);
+					break;
+				case CELL_SHIP_WAS_HIT:
+					if (m_OpponentField->GetShipEntryForCordinate(TargetPosition)->Destroyed)
+						renderer.Draw(m_FieldSquareTransforms[i], m_MarkerShipModel, vec4(0.0F, 0.0F, 0.0F, 1.0), 0.75F);
+					else
+						renderer.Draw(m_FieldSquareTransforms[i], m_MarkerShipModel);
+					break;
+				default:
+					break;
+				}
+			}
+	}
+
+	void Enemy_UpdateCursorPosition(const SceneData& SceneRendererData, const SceneData& ScreenRendererData, const mat4& ScreenTransform)
+	{
+		auto CursorPos = Enemy_GetCursorPosition(SceneRendererData, ScreenRendererData, ScreenTransform);
+		if (CursorPos.x < 0.0F || CursorPos.x > m_Width || CursorPos.y < 0.0F || CursorPos.y > m_Height)
+		{
+			// Hide the cursor out of bounds.
+			get<GameState>(m_State).HideCursor = true;
+			return;
+		}
+		PointComponent TargetPosition {
+			.XComponent = (uint8_t)CursorPos.x,
+			.YComponent = (uint8_t)CursorPos.y
+		};
+
+		switch (m_OpponentField->GetCellStateByCoordinates(TargetPosition))
+		{
+		case CELL_WAS_SHOT_EMPTY:
+		case CELL_SHIP_WAS_HIT:
+			get<GameState>(m_State).HideCursor = true;
+			break;
+		default:
+			get<GameState>(m_State).HideCursor = false;
+			get<GameState>(m_State).CursorPos = CursorPos;
+			break;
+		}
 	}
 	
 	CursorPosition Enemy_GetCursorPosition(const SceneData& SceneRendererData, const SceneData& ScreenRendererData, const mat4& ScreenTransform)
@@ -332,11 +403,47 @@ public:
 		return { GetCursorPosByArea(ScreenRendererData, m_Width, m_Height, ScreenTopLeft, ScreenBotRight, ScenePos, ScreenInternalSize) };
 	}
 
-	void Enemy_Selection(Renderer& renderer, const CursorPosition& CursorPos)
+	void Enemy_Selection(Renderer& renderer)
 	{
-		auto XCoord = clamp<int32_t>(CursorPos.x, 0, m_Width - 1);
-		auto YCoord = clamp<int32_t>(CursorPos.y, 0, m_Height - 1);
-		renderer.Draw(m_FieldSquareTransforms[index(XCoord, YCoord)], m_MarkerSelectModel);
+		if (!get<GameState>(m_State).HideCursor)
+		{
+			auto CursorPos = get<GameState>(m_State).CursorPos;
+			auto XCoord = clamp<int32_t>(CursorPos.x, 0, m_Width - 1);
+			auto YCoord = clamp<int32_t>(CursorPos.y, 0, m_Height - 1);
+			renderer.Draw(m_FieldSquareTransforms[index(XCoord, YCoord)], m_MarkerSelectModel);
+		}
+	}
+
+	void Enemy_DrawShips(Renderer& Renderer) const
+	{
+		auto shipStates = m_OpponentField->GetShipStateList();
+		for (auto& shipState : shipStates)
+		{
+			auto [type, pos] = DrawCastPos(shipState);
+			Enemy_DrawShip(Renderer, type, pos);
+		}
+	}
+
+	void Enemy_DrawShip(Renderer& Renderer, ShipType Type, ShipPosition Position) const
+	{
+		mat4 Transform{ TranslateByIdentity(Position.position) * m_MarkerHitTransforms[Type] * ShipRotations[Position.direction] };
+		Renderer.Draw(Transform, m_GameFieldMesh.VertexArray(), FieldSquareRange, *m_MarkerHitMaterial);
+	}
+
+	void Enemy_Hit()
+	{
+		if (!get<GameState>(m_State).HideCursor)
+		{
+			auto CursorPos = get<GameState>(m_State).CursorPos;
+			PointComponent TargetPosition {
+				.XComponent = (uint8_t)CursorPos.x,
+				.YComponent = (uint8_t)CursorPos.y
+			};
+			if (m_OpponentField->StrikeCellAndUpdateShipList(TargetPosition))
+			{
+				get<GameState>(m_State).HideCursor = true;
+			}
+		}
 	}
 
 	// Setup phase
@@ -345,6 +452,13 @@ public:
 	void SetupPhase_UpdateState()
 	{
 		m_State.emplace<SetupState>();
+	}
+
+	void SetupPhase_PrepareCursor(const SceneData& RendererData)
+	{
+		auto& State = get<SetupState>(m_State);
+		State.CursorPos = GetCursorPos(RendererData);
+		State.SelectedShipPos = GetShipPos(State.CursorPos, State.SelectedShip);
 	}
 
 	void SetupPhase_DrawSquares(Renderer& Renderer) const
@@ -367,14 +481,14 @@ public:
 		});
 	}
 
-	void SetupPhase_PlaceShip(const SceneData& RendererData)
+	void SetupPhase_PlaceShip()
 	{
 
 		// Get rendering variables
-		auto CursorHoverPos = GetCursorPos(RendererData);
+		auto CursorHoverPos = get<SetupState>(m_State).CursorPos;
 		if (CursorHoverPos.x < 0.0F || CursorHoverPos.x > m_Width || CursorHoverPos.y < 0.0F || CursorHoverPos.y > m_Height)
 			return; // Don't run if cursor is out of bounds.
-		auto ShipPosition = GetShipPos(CursorHoverPos, get<SetupState>(m_State).SelectedShip);
+		auto ShipPosition = get<SetupState>(m_State).SelectedShipPos;
 		
 		// Convert rendering variables to network compatible ones
 		auto NetShipClass = NetCastType(get<SetupState>(m_State).SelectedShip);
@@ -392,13 +506,13 @@ public:
 		// Ensure no more units are available of the current ship type,
 		// but the game field is not completed yet and there are units
 		// of different ship types left.
-		if (++get<SetupState>(m_State).PlacedShips.ShipCounts[NetShipClass] < m_GameManager.InternalShipCount.ShipCounts[NetShipClass]
-			|| SetupPhase_IsFinished())
+		auto PlacedShipCounts = m_PlayerField->GetNumberOfShipsPlacedAndInverse(true);
+		if (PlacedShipCounts.ShipCounts[NetShipClass] || !PlacedShipCounts.GetTotalCount())
 			return;
 
 		// Try to find any ship with units available that is larger than the current ship.
 		for (uint8_t NextShipClass = NetShipClass + 1; NextShipClass < ShipTypeCount; NextShipClass++)
-			if (SetupPhase_AreUnitsAvailable((ShipClass)NextShipClass))
+			if (PlacedShipCounts.ShipCounts[NextShipClass])
 			{
 				get<SetupState>(m_State).SelectedShip = DrawCastType((ShipClass)NextShipClass);
 				return;
@@ -406,21 +520,43 @@ public:
 
 		// Try to find any ship with units available that is smaller than the current ship.
 		for (uint8_t NextShipClass = NetShipClass - 1; NextShipClass < ShipTypeCount; NextShipClass--)
-			if (SetupPhase_AreUnitsAvailable((ShipClass)NextShipClass))
+			if (PlacedShipCounts.ShipCounts[NextShipClass])
 			{
 				get<SetupState>(m_State).SelectedShip = DrawCastType((ShipClass)NextShipClass);
 				return;
 			}
 				
-			
 	}
 
-	void SetupPhase_PreviewPlacement(Renderer& Renderer, const SceneData& RendererData)
+	void SetupPhase_DestroyShip()
+	{
+		// Get rendering variables
+		auto CursorHoverPos = get<SetupState>(m_State).CursorPos;
+		if (CursorHoverPos.x < 0.0F || CursorHoverPos.x > m_Width || CursorHoverPos.y < 0.0F || CursorHoverPos.y > m_Height)
+			return; // Don't run if cursor is out of bounds.
+		PointComponent TargetPoint {
+			.XComponent = (uint8_t)CursorHoverPos.x,
+			.YComponent = (uint8_t)CursorHoverPos.y
+		};
+
+		auto OldPlacedShips = m_PlayerField->GetNumberOfShipsPlacedAndInverse(false);
+		if (m_PlayerField->RemoveShipFromField(TargetPoint))
+		{
+			auto PlacedShips = m_PlayerField->GetNumberOfShipsPlacedAndInverse(false);
+			for (uint8_t i = 0; i < ShipTypeCount; i++)
+				if (OldPlacedShips.ShipCounts[i] != PlacedShips.ShipCounts[i])
+				{
+					get<SetupState>(m_State).SelectedShip = (ShipType)i;
+					return;
+				}
+		}
+	}
+
+	void SetupPhase_PreviewPlacement(Renderer& Renderer)
 	{
 
-		// Get ship position from cursor position
-		auto CursorHoverPos = GetCursorPos(RendererData);
-		auto ShipPosition = GetShipPos(CursorHoverPos, get<SetupState>(m_State).SelectedShip);
+		// Get ship position
+		auto ShipPosition = get<SetupState>(m_State).SelectedShipPos;
 
 		// Draw ship with the cursor position
 		DrawShip(Renderer, get<SetupState>(m_State).SelectedShip, ShipPosition, vec4(0.235F, 0.76F, 0.13F, 1.0F));
@@ -462,17 +598,18 @@ public:
 		}
 	}
 
-	void SetupPhase_ShipSelection(Renderer& Renderer, const SceneData& RendererData, bool WasLeftClicked)
+	void SetupPhase_ShipSelection(Renderer& Renderer, const SceneData& RendererData, bool* WasLeftClicked)
 	{
 		auto SquareSize = 0.15F;
 		auto ScaleValue = SquareSize / 10.0F;
 		auto ShipScale = scale(mat4(1.0F), vec3(ScaleValue, ScaleValue, ScaleValue));
 		auto ShipDistance = SquareSize + 0.02F;
+		auto PlacedShipCounts = m_PlayerField->GetNumberOfShipsPlacedAndInverse(true);
 		for (uint8_t i = 0, n = 0; i < ShipTypeCount; i++)
 		{
-			ShipType CurrentShip = (ShipType)i;
-			if (SetupPhase_AreUnitsAvailable(NetCastType(CurrentShip)))
+			if (PlacedShipCounts.ShipCounts[i])
 			{
+				auto CurrentShip = (ShipType)i;
 				auto ShipSize = ShipInfos[i].size;
 				auto ShipYOffset = (2.0F - n++) * ShipDistance;
 				vec2 TopLeft{
@@ -487,8 +624,11 @@ public:
 				bool IsCursorHovering = CursorPos.x >= 0.0F && CursorPos.x <= 1.0F
 					&& CursorPos.y >= 0.0F && CursorPos.y <= 1.0F;
 				auto ShipTransform = translate(mat4(1.0F), vec3(ShipYOffset, 0.0F, 0.55F + SquareSize * ShipSize / 2.0F));
-				if (WasLeftClicked && IsCursorHovering)
+				if (*WasLeftClicked && IsCursorHovering)
+				{
 					get<SetupState>(m_State).SelectedShip = CurrentShip;
+					*WasLeftClicked = false; // Reset
+				}
 				if (i == get<SetupState>(m_State).SelectedShip)
 					Renderer.Draw(ShipTransform * ShipScale, m_ShipModels[i], vec4(0.0F, 0.0F, 1.0F, 1.0F));
 				else if (IsCursorHovering)
@@ -501,12 +641,7 @@ public:
 
 	bool SetupPhase_IsFinished()
 	{
-		return get<SetupState>(m_State).PlacedShips.GetTotalCount() >= m_GameManager.InternalShipCount.GetTotalCount();
-	}
-
-	bool SetupPhase_AreUnitsAvailable(ShipClass Type)
-	{
-		return get<SetupState>(m_State).PlacedShips.ShipCounts[Type] < m_GameManager.InternalShipCount.ShipCounts[Type];
+		return m_PlayerField->GetNumberOfShipsPlaced() >= m_GameManager.InternalShipCount.GetTotalCount();
 	}
 
 	// Utility
@@ -725,12 +860,16 @@ private:
 	Render::Material* m_BorderMaterial { Resources::find<Render::Material>("GameField_Border") };
 	Render::Material* m_CollisionMaterial { Resources::find<Render::Material>("GameField_Collision") };
 	Render::Material* m_CollisionIndirectMaterial { Resources::find<Render::Material>("GameField_CollisionIndirect") };
+	Render::Material* m_MarkerHitMaterial { Resources::find<Render::Material>("Screen_MarkerHit") };
 
 	// Enemy field and screen properties
 	Render::Material* m_EnemyBorderMaterial { Resources::find<Render::Material>("Screen_GameField") };
 	Render::ConstModel* m_MarkerSelectModel { Resources::find<Render::ConstModel>("Markers/Select") };
 	Render::ConstModel* m_MarkerShipModel { Resources::find<Render::ConstModel>("Markers/Ship") };
 	Render::ConstModel* m_MarkerFailModel { Resources::find<Render::ConstModel>("Markers/Fail") };
+
+	// Transforms for the line shown on the screen when a ship is completely down.
+	mat4 m_MarkerHitTransforms[Draw::ShipTypeCount];
 
 	// Field square data for each field
 	mat4* m_FieldSquareTransforms;
@@ -746,6 +885,7 @@ private:
 	// Internal Manager (Logic)
 	const GameManager2& m_GameManager;
 	GmPlayerField* m_PlayerField;
+	GmPlayerField* m_OpponentField;
 
 	// State
 	State m_State;

@@ -13,6 +13,9 @@ import DispatchRoutine;
 using namespace GameManagement;
 using namespace Network;
 
+// Game
+import Game.GameField;
+
 // Misc
 using namespace std;
 
@@ -21,7 +24,11 @@ namespace
 
 	::Client::ManagementDispatchState s_ManagementState;
 
-	bool s_Connected{ false };
+	unique_ptr<GameField> s_GameField;
+	GmPlayerField* s_PlayerField;
+	GmPlayerField* s_OpponentField;
+
+	bool s_Connected { false };
 	function<void()> s_FailureCallback;
 	function<void()> s_SuccessCallback;
 
@@ -29,6 +36,22 @@ namespace
 
 export namespace Draw::NetEngine
 {
+
+	namespace Properties
+	{
+		auto& const GameField = s_GameField;
+	}
+
+	void ConnectWithoutServer()
+	{
+
+		PointComponent FieldDimensions { 12, 12 };
+		ShipCount MaxShipsOnField { 2, 2, 2, 2, 2 };
+		auto& ManagerInstance = GameManager2::CreateObject(FieldDimensions, MaxShipsOnField);
+		s_PlayerField = ManagerInstance.TryAllocatePlayerWithId(1);
+		s_OpponentField = ManagerInstance.TryAllocatePlayerWithId(2);
+		s_GameField = make_unique<GameField>(ManagerInstance, s_PlayerField, s_OpponentField);
+	}
 
 	bool Connect(const char* Username, const char* ServerAddress, const char* PortNumber,
 		function<void()>&& FailureCallback, function<void()>&& SuccessCallback)
@@ -45,6 +68,8 @@ export namespace Draw::NetEngine
 		// Clear State
 		s_ManagementState = { };
 		s_Connected = false;
+		s_PlayerField = nullptr;
+		s_OpponentField = nullptr;
 
 		// Connect
 		Network::Client::NetworkManager2::CreateObject(
@@ -88,21 +113,27 @@ export namespace Draw::NetEngine
 		else if (s_ManagementState.StateReady)
 		{
 			s_ManagementState.StateReady = false;
-			GameManager2::CreateObject(
+			auto& ManagerInstance = GameManager2::CreateObject(
 				s_ManagementState.InternalFieldDimensions,
 				s_ManagementState.NumberOFShipsPerType);
 
-			::Client::InstallGameManagerInstrumentationCallbacks(
-				Network::Client::NetworkManager2::GetInstancePointer());
+			::Client::InstallGameManagerInstrumentationCallbacks(ServerObject);
+
+			s_PlayerField = ManagerInstance.TryAllocatePlayerWithId(s_ManagementState.ClientIdByServer);
+			s_OpponentField = ManagerInstance.TryAllocatePlayerWithId(1);
+
+			s_GameField = make_unique<GameField>(ManagerInstance, s_PlayerField, s_OpponentField);
 
 			s_Connected = true;
 			s_SuccessCallback();
+
 		}
 	}
 
 	void CleanUp()
 	{
 		Network::Client::NetworkManager2::ManualReset();
+		s_GameField.reset();
 	}
 
 }

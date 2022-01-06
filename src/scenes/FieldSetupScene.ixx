@@ -38,6 +38,11 @@ namespace Draw::Scenes
 	{
 	public:
 
+		FieldSetupScene(GameField* GameField)
+			: m_GameField(GameField)
+		{
+		}
+
 		void Init_UpdateProjection()
 		{
 
@@ -54,9 +59,6 @@ namespace Draw::Scenes
 
 			/* Setup game field */
 
-			auto& ManagerInstance = GameManager2::GetInstance();
-			auto* PlayerGameField = ManagerInstance.TryAllocatePlayerWithId(1);
-			m_GameField = make_unique<GameField>(ManagerInstance, PlayerGameField);
 			m_GameField->SetupPhase_UpdateState();
 
 			/* Setup scene rendering */
@@ -89,20 +91,18 @@ namespace Draw::Scenes
 
 			m_SceneData.BeginFrame();
 			{
+				m_GameField->SetupPhase_PrepareCursor(m_SceneData);
 				m_GameField->DrawOcean(m_SceneRenderer);
 				m_GameField->DrawBackground(m_SceneRenderer);
 				m_GameField->DrawPlacedShips(m_SceneRenderer);
 				m_GameField->SetupPhase_DrawSquares(m_SceneRenderer);
 				if (!m_GameField->SetupPhase_IsFinished())
 				{
-					m_GameField->SetupPhase_PreviewPlacement(m_SceneRenderer, m_SceneData);
-					m_GameField->SetupPhase_ShipSelection(m_SceneRenderer, m_SceneData, m_WasLeftClicked);
+					m_GameField->SetupPhase_PreviewPlacement(m_SceneRenderer);
+					m_GameField->SetupPhase_ShipSelection(m_SceneRenderer, m_SceneData, &m_SelectNextShip);
 				}
 			}
 			m_SceneRenderer.Render();
-
-			// Reset single frame values
-			m_WasLeftClicked = false;
 
 			/* Draw GUI */
 
@@ -110,7 +110,7 @@ namespace Draw::Scenes
 			ImGui::Begin("Field Setup", nullptr, ImGuiWindowFlags_NoSavedSettings);
 			{
 				if (ImGui::Button("Done"))
-					Scene::Load(make_unique<GameScene>(move(m_GameField)));
+					Scene::Load(make_unique<GameScene>(m_GameField));
 			}
 			ImGui::End();
 
@@ -126,24 +126,34 @@ namespace Draw::Scenes
 
 		void OnMouseButton(int button, int action, int mods) override
 		{
-			if (button == GLFW_MOUSE_BUTTON_1 && action == GLFW_PRESS)
+			if (action == GLFW_PRESS)
 			{
-				m_GameField->SetupPhase_PlaceShip(m_SceneData);
-				m_WasLeftClicked = true;
+				switch (button)
+				{
+				case GLFW_MOUSE_BUTTON_1:
+					m_GameField->SetupPhase_PlaceShip();
+					m_SelectNextShip = true;
+					break;
+				case GLFW_MOUSE_BUTTON_2:
+					m_GameField->SetupPhase_DestroyShip();
+					break;
+				default:
+					break;
+				}
 			}
 		}
 
 	private:
 
+		// Click
+		bool m_SelectNextShip { false };
+
+		// General
+		GameField* m_GameField;
+
 		// Renderer
 		Draw::SceneData m_SceneData { &Window::Properties::FrameBuffer };
 		Draw::Renderer m_SceneRenderer { &Window::Properties::FrameBuffer };
-
-		// Game Field
-		unique_ptr<GameField> m_GameField;
-
-		// Click
-		bool m_WasLeftClicked{ false };
 
 	};
 

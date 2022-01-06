@@ -97,6 +97,6 @@ void Scene::Next() noexcept
 
 void Scene::CleanUp() noexcept
 {
-	s_next.release();
-	s_current.release();
+	s_next.reset();
+	s_current.reset();
 }

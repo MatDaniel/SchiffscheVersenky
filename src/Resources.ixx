@@ -496,6 +496,7 @@ export namespace Draw::Resources
 		Resources::emplace<Render::Material>("Screen_MarkerSelect", SolidProgram, DummyTexture, glm::vec4(0.725F, 0.0F, 0.0F, 1.0F));
 		Resources::emplace<Render::Material>("Screen_MarkerShip", SolidProgram, DummyTexture, glm::vec4(0.725F, 0.0F, 0.0F, 1.0F));
 		Resources::emplace<Render::Material>("Screen_MarkerFail", SolidProgram, DummyTexture, glm::vec4(1.0F, 1.0F, 1.0F, 1.0F));
+		Resources::emplace<Render::Material>("Screen_MarkerHit", SolidProgram, DummyTexture, glm::vec4(0.18125F, 0.0F, 0.0F, 1.0F));
 
 		// Models
 		for (size_t i = 0; i < ShipTypeCount; i++)
