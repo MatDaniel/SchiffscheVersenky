@@ -239,6 +239,7 @@ export namespace Network {
 			STATUS_NOT_YOUR_TURN,
 			STATUS_NOT_A_PLAYER,
 			STATUS_NOT_IN_PHASE,
+			STATUS_ENTRY_NOT_FOUND,
 
 			STATUS_NEUTRAL = 0,
 
@@ -252,6 +253,7 @@ export namespace Network {
 			SET_SHIP_LOC_CLIENT,   // Send only during setup, specifies where to place a ship
 			SHOOT_CELL_CLIENT,     // Client requesting a cell to be shot
 			READY_UP_CLIENT,       // Send by the client to state if they are ready or not
+			REMOVE_SHIP_CLIENT,    // Requests the server to remove a placed ship from the field
 
 			// The following is only send by server to client
 			NO_COMMAND_SERVER,     // Should be unused (reserved for @Lima)
@@ -296,6 +298,9 @@ export namespace Network {
 
 			// STARTUP_SHIPCOUNTS
 			ShipCount GameShipNumbers;
+
+			// REMOVE_SHIP_CLIENT
+			PointComponent RemoveShipLocation;
 
 			// CELL_STATE_SERVER
 			struct {

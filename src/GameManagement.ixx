@@ -95,67 +95,17 @@ export namespace GameManagement {
 			return nullopt;
 		}
 
-		PointComponent RemoveShipFromField( // Tries to remove a ship that overlaps with the specified location,
+		optional<PointComponent>
+		RemoveShipFromField(                // Tries to remove a ship that overlaps with the specified location,
 			                                // returns the coords of the ship if removed or ZComponent is set to 1 on failure
 			PointComponent ShipCoordinates  // A location to check overlapping with a ship placed on the field
-		) {
-			TRACE_FUNTION_PROTO;
+		);
 
-			auto PossibleShip = pGetShipEntryForCordinate(ShipCoordinates);
-			if (!PossibleShip)
-				return { 0, 0, 1 };
-
-			// We found a ship, now we just have to undo the placement
-			for (auto i = 0; i < ShipLengthPerType[PossibleShip->ShipType]; ++i) {
-
-				auto IteratorPosition = CalculateCordinatesOfPartByDistanceWithShip(
-					*PossibleShip, i);
-				(underlying_type_t<CellState>&)pGetCellStateByCoordinates(
-					IteratorPosition) &= ~PROBE_CELL_USED;
-			}
-			
-			auto ShipLocationBackup = PossibleShip->Cordinates;
-			FieldShipStates.erase(PossibleShip - FieldShipStates.data()
-				+ FieldShipStates.begin());
-			SPDLOG_LOGGER_INFO(GameLog, "Ship at location {} was removed form the field",
-				ShipLocationBackup);
-		}
-
-		CellState StrikeCellAndUpdateShipList( // Tries to "shoot" cell and applies handling,
-		                                       // This will update the grid array and the shipstate list
-			PointComponent TargetCoordinates
-		) {
-			TRACE_FUNTION_PROTO;
-
-			// Test and shoot cell in grid
-			auto& LocalCell = pGetCellStateByCoordinates(TargetCoordinates);
-			if (LocalCell & PROBE_CELL_WAS_SHOT)
-				return SPDLOG_LOGGER_ERROR(GameLog, "Location {{{}:{}}} was struck multiple times",
-					TargetCoordinates.XComponent, TargetCoordinates.YComponent),
-				LocalCell |= STATUS_WAS_ALREADY_SHOT;
-			LocalCell |= MERGE_SHOOT_CELL;
-
-			// Check if cell is within a ship, in which case we locate the ship and check for the destruction of the ship
-			if (!(LocalCell & PROBE_CELL_USED))
-				return LocalCell;
-
-			auto ShipEntry = pGetShipEntryForCordinate(TargetCoordinates);
-			for (auto i = 0; i < ShipLengthPerType[ShipEntry->ShipType]; ++i) {
-
-				// Enumerate all cells and test for non destroyed cell
-				auto IteratorPosition = CalculateCordinatesOfPartByDistanceWithShip(
-					*ShipEntry, i);
-				if ((pGetCellStateByCoordinates(IteratorPosition) & MASK_FILTER_STATE_BITS) != CELL_SHIP_WAS_HIT)
-					return SPDLOG_LOGGER_INFO(GameLog, "Ship at {{{}:{}}} was hit in {{{}:{}}}",
-						ShipEntry->Cordinates.XComponent, ShipEntry->Cordinates.YComponent,
-						TargetCoordinates.XComponent, TargetCoordinates.YComponent),
-					LocalCell;
-			}
-
-			SPDLOG_LOGGER_INFO(GameLog, "Ship at {{{}:{}}} was sunken",
-				ShipEntry->Cordinates.XComponent, ShipEntry->Cordinates.YComponent);
-			return LocalCell |= STATUS_WAS_DESTRUCTOR;
-		}
+		optional<CellState> 
+		StrikeCellAndUpdateShipList(         // Tries to "shoot" cell and applies handling,
+		                                     // This will update the grid array and the shipstate list
+			PointComponent TargetCoordinates // The target location to strike and update
+		);
 
 
 		// Helper functions for externals
@@ -172,6 +122,10 @@ export namespace GameManagement {
 		span<const ShipState> GetShipStateList() const {
 			TRACE_FUNTION_PROTO; return FieldShipStates;
 		}
+		ShipCount GetNumberOfShipsPlacedAndInverse( // Gets the ship count of the currently placed ships, or
+			                                        // if the flag is set the number of ships left to be placed
+			bool GetInverted						// 
+		) const;
 		uint8_t GetNumberOfShipsPlaced() const {
 			TRACE_FUNTION_PROTO; return FieldShipStates.size();
 		}
@@ -685,6 +639,118 @@ export namespace GameManagement {
 	) {
 		TRACE_FUNTION_PROTO; return FieldCellStates[Cordinates.YComponent *
 			GameManager2::GetInstance().InternalFieldDimensions.XComponent + Cordinates.XComponent];
+	}
+
+	ShipCount GmPlayerField::GetNumberOfShipsPlacedAndInverse(
+		bool GetInverted
+	) const {
+		ShipCount ShipCountOrInverse;
+		for (auto& ShipEntry : FieldShipStates)
+			++ShipCountOrInverse.ShipCounts[ShipEntry.ShipType];
+
+		if (GetInverted) {
+
+			// Invert ship counts (the number of ships left on the field)
+			auto& GameManager = GameManager2::GetInstance();
+			for (auto i = 0; i < extent_v<decltype(ShipCount::ShipCounts)>; ++i)
+				ShipCountOrInverse.ShipCounts[i] =
+				GameManager.InternalShipCount.ShipCounts[i] - ShipCountOrInverse.ShipCounts[i];
+		}
+
+		return ShipCountOrInverse;
+	}
+
+	optional<CellState>
+	GmPlayerField::StrikeCellAndUpdateShipList( // Tries to "shoot" cell and applies handling,
+										        // This will update the grid array and the shipstate list
+		PointComponent TargetCoordinates        // The target location to strike and update
+	) {
+		TRACE_FUNTION_PROTO;
+
+		// Get Instrumentation callback for control flow injection
+		auto& GameManager = GameManager2::GetInstance();
+		auto& StrikeCallbackEx = GameManager.ExCallbacks[SRITECELL_ICALLBACK_INDEX];
+		if (StrikeCallbackEx) {
+
+			// Callback has been installed, build context and dispatch callable
+			FieldStrikeLocationEx StrikeInjection(TargetCoordinates);
+			if (StrikeCallbackEx(this,
+				StrikeInjection))
+				return nullopt;
+		}
+
+		// Test and shoot cell in grid
+		auto& LocalCell = pGetCellStateByCoordinates(TargetCoordinates);
+		if (LocalCell & PROBE_CELL_WAS_SHOT)
+			return SPDLOG_LOGGER_ERROR(GameLog, "Location {} was struck multiple times",
+				TargetCoordinates),
+			LocalCell |= STATUS_WAS_ALREADY_SHOT;
+		LocalCell |= MERGE_SHOOT_CELL;
+		SPDLOG_LOGGER_INFO(GameLog, "Cellstate in location {} was updated to {}",
+			TargetCoordinates, LocalCell);
+
+		// Check if cell is within a ship, in which case we locate the ship and check for the destruction of the ship
+		if (!(LocalCell & PROBE_CELL_USED))
+			return LocalCell;
+
+		// Apply changes to each cell below the ship itself
+		auto ShipEntry = pGetShipEntryForCordinate(TargetCoordinates);
+		for (auto i = 0; i < ShipLengthPerType[ShipEntry->ShipType]; ++i) {
+
+			// Enumerate all cells and test for non destroyed cell
+			auto IteratorPosition = CalculateCordinatesOfPartByDistanceWithShip(
+				*ShipEntry, i);
+			if ((pGetCellStateByCoordinates(IteratorPosition) & MASK_FILTER_STATE_BITS) != CELL_SHIP_WAS_HIT)
+				return SPDLOG_LOGGER_INFO(GameLog, "Ship at {} was hit in {}",
+					ShipEntry->Cordinates,
+					TargetCoordinates),
+				LocalCell;
+		}
+
+		SPDLOG_LOGGER_INFO(GameLog, "Ship at {} was sunken",
+			ShipEntry->Cordinates);
+		return LocalCell |= STATUS_WAS_DESTRUCTOR;
+	}
+
+	optional<PointComponent>
+	GmPlayerField::RemoveShipFromField(     // Tries to remove a ship that overlaps with the specified location,
+											// returns the coords of the ship if removed or ZComponent is set to 1 on failure
+		PointComponent ShipCoordinates      // A location to check overlapping with a ship placed on the field
+	) {
+		TRACE_FUNTION_PROTO;
+
+		// Get Instrumentation callback for control flow injection
+		auto& GameManager = GameManager2::GetInstance();
+		auto& RemoveShipCallbackEx = GameManager.ExCallbacks[REMOVESHI_ICALLBACK_INDEX];
+		if (RemoveShipCallbackEx) {
+
+			// Callback has been installed, build context and dispatch callable
+			RemoveShipLocationEx RemoveInjection(ShipCoordinates);
+			if (RemoveShipCallbackEx(this,
+				RemoveInjection))
+				return nullopt;
+		}
+
+		// Find possible ship that overlays with out coordinates
+		auto PossibleShip = pGetShipEntryForCordinate(ShipCoordinates);
+		if (!PossibleShip)
+			return PointComponent{ 0, 0, 1 };
+
+		// We found a ship, now we just have to undo the placement
+		for (auto i = 0; i < ShipLengthPerType[PossibleShip->ShipType]; ++i) {
+
+			auto IteratorPosition = CalculateCordinatesOfPartByDistanceWithShip(
+				*PossibleShip, i);
+			(underlying_type_t<CellState>&)pGetCellStateByCoordinates(
+				IteratorPosition) &= ~PROBE_CELL_USED;
+		}
+
+		auto ShipLocationBackup = PossibleShip->Cordinates;
+		FieldShipStates.erase(PossibleShip - FieldShipStates.data()
+			+ FieldShipStates.begin());
+		SPDLOG_LOGGER_INFO(GameLog, "Ship at location {} was removed form the field",
+			ShipLocationBackup);
+		return ShipLocationBackup;
 	}
 #pragma endregion Game field controller fragment inplementation
 
