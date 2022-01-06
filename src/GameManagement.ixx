@@ -95,7 +95,7 @@ export namespace GameManagement {
 			return nullopt;
 		}
 
-		optional<PointComponent>
+		optional<ShipState>
 		RemoveShipFromField(                // Tries to remove a ship that overlaps with the specified location,
 			                                // returns the coords of the ship if removed or ZComponent is set to 1 on failure
 			PointComponent ShipCoordinates  // A location to check overlapping with a ship placed on the field
@@ -109,11 +109,9 @@ export namespace GameManagement {
 
 
 		// Helper functions for externals
-		CellState GetCellStateByCoordinates(
+		CellState& GetCellStateByCoordinates(
 			PointComponent Cordinates
-		) {
-			TRACE_FUNTION_PROTO; return pGetCellStateByCoordinates(Cordinates);
-		}
+		);
 		const ShipState* GetShipEntryForCordinate(
 			PointComponent Cordinates
 		) {
@@ -267,10 +265,6 @@ export namespace GameManagement {
 				BaseShipData.Rotation,
 				DistanceToWalk);
 		}
-
-		CellState& pGetCellStateByCoordinates(
-			PointComponent Cordinates
-		);
 
 		unique_ptr<CellState[]> FieldCellStates;
 		vector<ShipState>       FieldShipStates;
@@ -430,6 +424,19 @@ export namespace GameManagement {
 		SOCKET GetCurrentSelectedPlayer() const {
 			TRACE_FUNTION_PROTO; return CurrentSelectedPlayer;
 		}
+		bool EndCurrentGame() {
+			TRACE_FUNTION_PROTO;
+
+			if (CurrentGameState != GAME_PHASE) {
+
+				// We cannot end the game here
+				SPDLOG_LOGGER_ERROR(GameLog, "Failed to end game, not even in the correct state");
+				return false;
+			}
+
+			SPDLOG_LOGGER_INFO(GameLog, "Game over, gamestate changed and the game was terminated");
+			return true;
+		}
 
 		// Game parameters, used for allocating players
 		const PointComponent InternalFieldDimensions;
@@ -550,7 +557,7 @@ export namespace GameManagement {
 						continue;
 
 					// Lookup location and apply test, construct collision list from there
-					auto CellstateOfLookup = pGetCellStateByCoordinates(LookupLocation);
+					auto CellstateOfLookup = GetCellStateByCoordinates(LookupLocation);
 					if (CellstateOfLookup & PROBE_CELL_USED) {
 
 						// Assume which type of collision we are dealing with, this may not be final
@@ -615,7 +622,7 @@ export namespace GameManagement {
 			// This loop iterates through all cell positions of ship parts and writes the state to the grid
 			auto IteratorPosition = CalculateCordinatesOfPartByDistanceWithShip(
 				ShipCoordinates, ShipOrientation, i);
-			pGetCellStateByCoordinates(IteratorPosition) = CELL_IS_IN_USE;
+			GetCellStateByCoordinates(IteratorPosition) = CELL_IS_IN_USE;
 		}
 
 		// Finally add the ship to our list, and invalidate our lookup cache
@@ -634,10 +641,11 @@ export namespace GameManagement {
 		return true;
 	}
 
-	CellState& GmPlayerField::pGetCellStateByCoordinates(
+	CellState& GmPlayerField::GetCellStateByCoordinates(
 		PointComponent Cordinates
 	) {
-		TRACE_FUNTION_PROTO; return FieldCellStates[Cordinates.YComponent *
+		TRACE_FUNTION_PROTO; 
+		return FieldCellStates[Cordinates.YComponent *
 			GameManager2::GetInstance().InternalFieldDimensions.XComponent + Cordinates.XComponent];
 	}
 
@@ -680,7 +688,7 @@ export namespace GameManagement {
 		}
 
 		// Test and shoot cell in grid
-		auto& LocalCell = pGetCellStateByCoordinates(TargetCoordinates);
+		auto& LocalCell = GetCellStateByCoordinates(TargetCoordinates);
 		if (LocalCell & PROBE_CELL_WAS_SHOT)
 			return SPDLOG_LOGGER_ERROR(GameLog, "Location {} was struck multiple times",
 				TargetCoordinates),
@@ -700,7 +708,7 @@ export namespace GameManagement {
 			// Enumerate all cells and test for non destroyed cell
 			auto IteratorPosition = CalculateCordinatesOfPartByDistanceWithShip(
 				*ShipEntry, i);
-			if ((pGetCellStateByCoordinates(IteratorPosition) & MASK_FILTER_STATE_BITS) != CELL_SHIP_WAS_HIT)
+			if ((GetCellStateByCoordinates(IteratorPosition) & MASK_FILTER_STATE_BITS) != CELL_SHIP_WAS_HIT)
 				return SPDLOG_LOGGER_INFO(GameLog, "Ship at {} was hit in {}",
 					ShipEntry->Cordinates,
 					TargetCoordinates),
@@ -712,7 +720,7 @@ export namespace GameManagement {
 		return LocalCell |= STATUS_WAS_DESTRUCTOR;
 	}
 
-	optional<PointComponent>
+	optional<ShipState>
 	GmPlayerField::RemoveShipFromField(     // Tries to remove a ship that overlaps with the specified location,
 											// returns the coords of the ship if removed or ZComponent is set to 1 on failure
 		PointComponent ShipCoordinates      // A location to check overlapping with a ship placed on the field
@@ -731,25 +739,25 @@ export namespace GameManagement {
 				return nullopt;
 		}
 
-		// Find possible ship that overlays with out coordinates
+		// Find possible ship that overlays with our coordinates
 		auto PossibleShip = pGetShipEntryForCordinate(ShipCoordinates);
 		if (!PossibleShip)
-			return PointComponent{ 0, 0, 1 };
+			return ShipState{ .Cordinates = { 0, 0, 1} };
 
 		// We found a ship, now we just have to undo the placement
 		for (auto i = 0; i < ShipLengthPerType[PossibleShip->ShipType]; ++i) {
 
 			auto IteratorPosition = CalculateCordinatesOfPartByDistanceWithShip(
 				*PossibleShip, i);
-			(underlying_type_t<CellState>&)pGetCellStateByCoordinates(
+			(underlying_type_t<CellState>&)GetCellStateByCoordinates(
 				IteratorPosition) &= ~PROBE_CELL_USED;
 		}
 
-		auto ShipLocationBackup = PossibleShip->Cordinates;
+		auto ShipLocationBackup = *PossibleShip;
 		FieldShipStates.erase(PossibleShip - FieldShipStates.data()
 			+ FieldShipStates.begin());
 		SPDLOG_LOGGER_INFO(GameLog, "Ship at location {} was removed form the field",
-			ShipLocationBackup);
+			ShipLocationBackup.Cordinates);
 		return ShipLocationBackup;
 	}
 #pragma endregion Game field controller fragment inplementation

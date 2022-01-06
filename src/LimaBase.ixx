@@ -245,6 +245,7 @@ export namespace Network {
 
 			STATUS_YOUR_TURN,
 			STATUS_YOURE_LOBBY_HOST, // special, may never be implemented for MVP version
+			STATUS_GAME_OVER,        // ends the game itself the winner is contained in selected player field
 
 		};
 		enum ShipControlCommandName {

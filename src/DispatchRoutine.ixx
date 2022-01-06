@@ -210,7 +210,7 @@ export namespace Server {
 				SPDLOG_LOGGER_INFO(LayerLog, "Send opponent {} state change notification",
 					OpponentId);
 
-				// - broadcast the changes made to except to the opponents client
+				// - broadcast the changes made except to the opponents client
 				NetworkDevice->BroadcastShipSockControlExcept(NetworkRequest,
 					OpponentId,
 					ShipSockControl{
@@ -221,10 +221,42 @@ export namespace Server {
 							CellUpdated.value()
 					} });
 
-				// Complete request, notify player of successful strike request
+				// Notify player of successful strike request
 				NetworkRequest.OptionalClient->RaiseStatusMessageOrComplete(NetworkRequest,
 					ShipSockControl::STATUS_NEUTRAL,
 					RequestPackage->SpecialRequestIdentifier);
+
+				// -> Special case in case strike cell returns sunken we have to check if the party shot lost
+				//    and inform all clients about the game over state,
+				//    then switch our own state to game over
+				if (CellUpdated.value() & STATUS_WAS_DESTRUCTOR) {
+
+					// Check if all ships are down
+					bool AllDown = true;
+					for (auto& Shipstate : OpponentPlayerField->GetShipStateList())
+						if (!Shipstate.Destroyed) {
+							AllDown = false; break;
+						}
+					if (AllDown) {
+
+						// All ships have been destroyed, notify clients of game over
+						if (!GameManager.EndCurrentGame()) {
+
+							SPDLOG_LOGGER_ERROR(LayerLog, "Failed to terminate game state");
+							NetworkRequest.CompleteIoRequest(NwRequestPacket::STATUS_REQUEST_ERROR);
+						}
+
+						NetworkDevice->BroadcastShipSockControlExcept(NetworkRequest,
+							INVALID_SOCKET,
+							ShipSockControl{
+								.ControlCode = ShipSockControl::RAISE_STATUS_MESSAGE,
+								.SocketAsSelectedPlayerId = RequestingClientId,
+								.ShipControlRaisedStatus = ShipSockControl::STATUS_GAME_OVER 
+							});
+					}
+				}
+
+				// Complete request and log
 				SPDLOG_LOGGER_INFO(LayerLog, "Broadcasted cell state change to other clients");
 				NetworkRequest.CompleteIoRequest(NwRequestPacket::STATUS_REQUEST_COMPLETED);
 			}
@@ -281,7 +313,7 @@ export namespace Server {
 				// Remove the ship from the field
 				auto Result = RequestingPlayer.RemoveShipFromField(
 					RequestPackage->RemoveShipLocation);
-				if (Result.value().ZComponent) {
+				if (Result.value().Cordinates.ZComponent) {
 
 					// Failed to remove ship from field, either no ship existed there,
 					// or something else went terribly wrong
@@ -313,7 +345,6 @@ export namespace Server {
 				NetworkRequest.OptionalClient->GetSocket());
 			NetworkRequest.CompleteIoRequest(NwRequestPacket::STATUS_REQUEST_COMPLETED);
 		}
-												 break;
 
 		default:
 			SPDLOG_LOGGER_CRITICAL(LayerLog, "Io request left untreated, fatal");
@@ -553,6 +584,12 @@ export namespace Client {
 		ShipCount      NumberOFShipsPerType;
 		bool           StateReady;
 		SOCKET         ClientIdByServer;
+
+		enum GameOverState {
+			NOT_VALID_YET = 0,
+			MY_PLAYER_WON,
+			MY_PALYER_LOST,
+		} GameOverStateRep;
 	};
 
 	void ManagementDispatchRoutine(
@@ -600,26 +637,68 @@ export namespace Client {
 					ServerRemoteIdForMyPlayer);
 				NetworkRequest.CompleteIoRequest(NwRequestPacket::STATUS_REQUEST_COMPLETED);
 			}
+			case ShipSockControl::SHOOT_CELL_SERVER: {
 
-			case ShipSockControl::CELL_STATE_SERVER: {
+				// if we get this means the server fucking shot us and will kill us if we dont listen to that gay MF'er,
+				// btw we know that if we call Strike our own filed the callback will never intervein
 				auto& GameManager = GameManager2::GetInstance();
-
-
+				auto OurPlayerField = GameManager.GetPlayerFieldByOperation(
+					GameManager2::GET_MY_PLAYER,
+					INVALID_SOCKET);
+				auto Result = OurPlayerField->StrikeCellAndUpdateShipList(
+					IoControlPacketData->ShootCellLocation);
+				if (!Result)
+					throw runtime_error("Fucking dammit this shit cant return an optional state here");
+				SPDLOG_LOGGER_INFO(LayerLog, "Players field was successfully shot by server");
+				NetworkRequest.CompleteIoRequest(NwRequestPacket::STATUS_REQUEST_COMPLETED);
+			}
+			case ShipSockControl::CELL_STATE_SERVER: {
+				
+				// if we receive this we know that the opponent field gets updated 
+				// (for viewers the player will be identified through its id)
+				// Update specific cell state
+				auto& GameManager = GameManager2::GetInstance();
+				auto OpponentPlayer = GameManager.GetPlayerFieldByOperation(
+					GameManager2::GET_OPPONENT_PLAYER,
+					INVALID_SOCKET);
+				auto Result = OpponentPlayer->GetCellStateByCoordinates(
+					IoControlPacketData->CellStateUpdate.Coordinates) 
+					= IoControlPacketData->CellStateUpdate.State;
+				SPDLOG_LOGGER_INFO(LayerLog, "Updated cellstate in {} to {}",
+					IoControlPacketData->CellStateUpdate.Coordinates,
+					IoControlPacketData->CellStateUpdate.State);
 				NetworkRequest.CompleteIoRequest(NwRequestPacket::STATUS_REQUEST_COMPLETED);
 			}
 
-
-			// Callback injection extension handler:
-			// This takes care of async responses from the server 
 			case ShipSockControl::RAISE_STATUS_MESSAGE: {
 
 				SPDLOG_LOGGER_INFO(GameLogEx, "Received status message with id {}",
 					IoControlPacketData->SpecialRequestIdentifier);
+				// Callback injection extension handler:
+				// This takes care of async responses from the server 
 
 				// Check if we can find a queued status for our request 
 				// (at this point nothing in my brain makes sense anymore)
 				auto Iterator = QueuedForStatus.find(IoControlPacketData->SpecialRequestIdentifier);
 				if (Iterator == QueuedForStatus.end()) {
+
+					switch (IoControlPacketData->ShipControlRaisedStatus) {
+					case ShipSockControl::STATUS_GAME_OVER: {
+
+						// need to find out who won and notify caller of dispatch
+						// auto& GameManager = GameManager2::GetInstance();
+						auto DispatchState = (ManagementDispatchState*)UserContext;
+						DispatchState->GameOverStateRep =
+							IoControlPacketData->SocketAsSelectedPlayerId == ServerRemoteIdForMyPlayer
+							? ManagementDispatchState::MY_PLAYER_WON : ManagementDispatchState::MY_PALYER_LOST;
+						SPDLOG_LOGGER_INFO(LayerLog, "Server dispatched game over message {}",
+							DispatchState->GameOverStateRep);
+						NetworkRequest.CompleteIoRequest(NwRequestPacket::STATUS_REQUEST_COMPLETED);
+					}
+
+					default:
+						break;
+					}
 
 					// The server send a status for a non queued request ?!
 					SPDLOG_LOGGER_CRITICAL(GameLogEx, "Received status message for unrecored record");
@@ -659,8 +738,8 @@ export namespace Client {
 				break;
 
 				case SRITECELL_ICALLBACK_INDEX: {
-
-					// our request was confirmed now asynchronously do what the client expected us to actually do
+					
+					/* // our request was confirmed now asynchronously do what the client expected us to actually do
 					auto& DownStrikeLocation = dynamic_cast<FieldStrikeLocationEx&>(*Iterator->second);
 					auto OpponentField = GameManager2::GetInstance()
 						.GetPlayerFieldByOperation(GameManager2::GET_OPPONENT_PLAYER,
@@ -673,7 +752,7 @@ export namespace Client {
 
 						SPDLOG_LOGGER_CRITICAL(GameLogEx, "GameEx injected controlflow received success notification but failed to update cell");
 						NetworkRequest.CompleteIoRequest(NwRequestPacket::STATUS_REQUEST_ERROR);
-					}
+					}*/
 				}
 				break;
 
