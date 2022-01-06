@@ -103,16 +103,7 @@ struct SetupState
 	ShipType SelectedShip{ Draw::ST_DESTROYER };
 
 	// Properties for collision
-	ShipClass LastProbedClass{ NetCastType(Draw::ST_INVALID) };
-	ShipRotation LastProbedOrientation;
-	PointComponent LastProbedPoint;
-	unordered_map<u8vec2, GmPlayerField::PlayFieldStatus> InvalidPlacementSquares{ };
-
-	// Utilities
-	void InvalidateProbedData()
-	{
-		LastProbedClass = NetCastType(ST_INVALID);
-	}
+	unordered_map<u8vec2, GmPlayerField::PlayFieldStatus> InvalidPlacementSquares { };
 
 };
 
@@ -500,14 +491,13 @@ public:
 		if (result.size())
 			return;
 
+		auto PlacedShipCounts = m_PlayerField->GetNumberOfShipsPlacedAndInverse(true);
 		m_PlayerField->PlaceShipBypassSecurityChecks(NetShipClass, NetShipOrientation, NetShipPosition);
-		get<SetupState>(m_State).InvalidateProbedData();
 
 		// Ensure no more units are available of the current ship type,
 		// but the game field is not completed yet and there are units
 		// of different ship types left.
-		auto PlacedShipCounts = m_PlayerField->GetNumberOfShipsPlacedAndInverse(true);
-		if (PlacedShipCounts.ShipCounts[NetShipClass] || !PlacedShipCounts.GetTotalCount())
+		if (PlacedShipCounts.ShipCounts[NetShipClass] > 1 || PlacedShipCounts.GetTotalCount() <= 1)
 			return;
 
 		// Try to find any ship with units available that is larger than the current ship.
@@ -565,17 +555,6 @@ public:
 		auto NetShipClass = NetCastType(get<SetupState>(m_State).SelectedShip);
 		auto NetShipOrientation = NetCastRot(ShipPosition.direction);
 		auto NetShipPosition = NetCastPos(get<SetupState>(m_State).SelectedShip, ShipPosition);
-
-		// Ensure it's a new probe
-		if (get<SetupState>(m_State).LastProbedClass == NetShipClass
-			&& get<SetupState>(m_State).LastProbedOrientation == NetShipOrientation
-			&& get<SetupState>(m_State).LastProbedPoint == NetShipPosition)
-			return;
-		
-		// Set them to the last probed variables
-		get<SetupState>(m_State).LastProbedClass = NetShipClass;
-		get<SetupState>(m_State).LastProbedOrientation = NetShipOrientation;
-		get<SetupState>(m_State).LastProbedPoint = NetShipPosition;
 
 		// Probe the ship placement with these variables
 		auto ProbeResult = m_PlayerField->ProbeShipPlacement(NetShipClass, NetShipOrientation, NetShipPosition);
