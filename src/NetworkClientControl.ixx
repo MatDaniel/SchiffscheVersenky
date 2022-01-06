@@ -317,7 +317,10 @@ export namespace Network::Client {
 									((ShipSockControl*)InternalPacketEntry.DataPacket.get())->SizeOfThisStruct);
 								OutboundPacketQueue.pop();
 							}
-						} while (Result > 0);
+
+						// Check if send() was successful and if so also check if we again have anything to send anymore
+						} while (Result > 0
+							&& OutboundPacketQueue.size());
 					}
 
 					// We were notified about a write ready state, check if we successfully connected

@@ -240,11 +240,11 @@ export namespace Server {
 						RequestPackage->ShipLocation.TypeOfShip,
 						RequestPackage->ShipLocation.Rotation,
 						RequestPackage->ShipLocation.ShipsPosition);
+					auto AssociatedClient = NetworkDevice->GetClientBySocket(
+						NetworkRequest.RequestingSocket);
 					if (Result != GmPlayerField::STATUS_SHIP_PLACED) {
 
 						SPDLOG_LOGGER_ERROR(LayerLog, "Could not place ship, client {} seemingly didnt check correctly or attempted to cheat",
-							NetworkRequest.RequestingSocket);
-						auto AssociatedClient = NetworkDevice->GetClientBySocket(
 							NetworkRequest.RequestingSocket);
 						AssociatedClient->RaiseStatusMessageOrComplete(NetworkRequest,
 							ShipSockControl::STATUS_INVALID_PLACEMENT,
@@ -252,7 +252,10 @@ export namespace Server {
 						NetworkRequest.CompleteIoRequest(NwRequestPacket::STATUS_REQUEST_IGNORED);
 					}
 
-					// Complete request
+					// Complete request, notify player of successful placement
+					AssociatedClient->RaiseStatusMessageOrComplete(NetworkRequest,
+						ShipSockControl::STATUS_NEUTRAL,
+						RequestPackage->SpecialRequestIdentifier);
 					SPDLOG_LOGGER_INFO(LayerLog, "Successfully received and placed ship on board");
 					NetworkRequest.CompleteIoRequest(NwRequestPacket::STATUS_REQUEST_COMPLETED);
 				}
@@ -488,6 +491,7 @@ export namespace Client {
 					SPDLOG_LOGGER_CRITICAL(GameLogEx, "Received status message for unrecored record");
 					NetworkRequest.CompleteIoRequest(NwRequestPacket::STATUS_REQUEST_ERROR);
 				}
+				Iterator->second->StatusReceived = true;
 
 				// Check if the server is notifying us with a violation
 				if (IoControlPacketData->ShipControlRaisedStatus < 0) {
@@ -495,12 +499,43 @@ export namespace Client {
 					SPDLOG_LOGGER_WARN(GameLogEx, "This client violated a gamerule on the server with status {}",
 						IoControlPacketData->ShipControlRaisedStatus);
 					Iterator->second->StatusAcceptable = false;
+					NetworkRequest.CompleteIoRequest(NwRequestPacket::STATUS_REQUEST_COMPLETED);
 				}
 
-				// Log and complete request
-				SPDLOG_LOGGER_INFO(GameLogEx, "Server notified us of ok state");
-				NetworkRequest.CompleteIoRequest(NwRequestPacket::STATUS_REQUEST_COMPLETED);
+				// The server notified us with a positive status, apply handling
+				switch (Iterator->second->TypeTag_Index) {
+				case PLACEMENT_ICALLBACK_INDEX: {
+
+					// our request was confirmed now asynchronously do what the client expected us to actually do
+					auto& DownPlacement = dynamic_cast<ShipPlacementEx&>(*Iterator->second);
+					auto OurPlayerField = GameManager2::GetInstance()
+						.GetPlayerFieldByOperation(GameManager2::GET_MY_PLAYER,
+						INVALID_SOCKET);
+					auto Result = OurPlayerField->PlaceShipBypassSecurityChecks(DownPlacement.TypeOfShip,
+						DownPlacement.ShipOrientation,
+						DownPlacement.ShipCoordinates);
+					if (!Result) {
+
+						SPDLOG_LOGGER_CRITICAL(GameLogEx, "GameEx injected controlflow received success notification but failed to place ship");
+						NetworkRequest.CompleteIoRequest(NwRequestPacket::STATUS_REQUEST_ERROR);
+					}
+
+					SPDLOG_LOGGER_INFO(GameLogEx, "Server notified us of ok state");
+					NetworkRequest.CompleteIoRequest(NwRequestPacket::STATUS_REQUEST_COMPLETED);
+				}
+
+				case SRITECELL_ICALLBACK_INDEX: {
+
+					NetworkRequest.CompleteIoRequest(NwRequestPacket::STATUS_REQUEST_NOT_HANDLED);
+				}
+
+				case REMOVESHI_ICALLBACK_INDEX: {
+
+					NetworkRequest.CompleteIoRequest(NwRequestPacket::STATUS_REQUEST_NOT_HANDLED);
+				}}
+
 			}
+			break;
 
 			default: {
 

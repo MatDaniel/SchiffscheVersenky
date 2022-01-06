@@ -19,15 +19,9 @@ using namespace std;
 namespace
 {
 
-	enum NetState {
-		NS_NONE,
-		NS_CONNECTING,
-		NS_CONNECTED
-	};
-
 	::Client::ManagementDispatchState s_ManagementState;
 
-	NetState s_InternalNetworkState;
+	bool s_Connected{ false };
 	function<void()> s_FailureCallback;
 	function<void()> s_SuccessCallback;
 
@@ -39,9 +33,9 @@ export namespace Draw::NetEngine
 	bool Connect(const char* Username, const char* ServerAddress, const char* PortNumber,
 		function<void()>&& FailureCallback, function<void()>&& SuccessCallback)
 	{
-	
+
 		// Ensure state is not conflicting
-		if (s_InternalNetworkState != NS_NONE)
+		if (Network::Client::NetworkManager2::GetInstancePointer())
 			return false;
 
 		// Setup callbacks
@@ -50,14 +44,12 @@ export namespace Draw::NetEngine
 
 		// Clear State
 		s_ManagementState = { };
+		s_Connected = false;
 
 		// Connect
 		Network::Client::NetworkManager2::CreateObject(
 			ServerAddress,
 			PortNumber);
-
-		// Update State
-		s_InternalNetworkState = NS_CONNECTING;
 
 		// Return result
 		return true;
@@ -67,64 +59,50 @@ export namespace Draw::NetEngine
 	void Update()
 	{
 
-		// Ensure network is in some different state than none
-		if (s_InternalNetworkState == NS_NONE)
+		// Get network instance
+		auto* ServerObject = Network::Client::NetworkManager2::GetInstancePointer();
+
+		// Ensure the network instance exist
+		if (!ServerObject)
 			return;
 
-		// Get network instance
-		auto& ServerObject = Network::Client::NetworkManager2::GetInstance();
+		auto ResponseOption = ServerObject->ExecuteNetworkRequestHandlerWithCallback(
+			::Client::ManagementDispatchRoutine,
+			(void*)&s_ManagementState);
 
-		switch (s_InternalNetworkState)
+		if (s_Connected)
 		{
-
-		case NS_CONNECTING:
+			switch (ResponseOption)
 			{
-				auto ResponseOption = ServerObject.ExecuteNetworkRequestHandlerWithCallback(
-					::Client::ManagementDispatchRoutine,
-					(void*)&s_ManagementState);
-
-				if (ResponseOption < 0)
-				{
-					s_InternalNetworkState = NS_NONE;
-					s_FailureCallback();
-				}
-				else if (s_ManagementState.StateReady)
-				{
-					s_ManagementState.StateReady = false;
-					GameManager2::CreateObject(
-						s_ManagementState.InternalFieldDimensions,
-						s_ManagementState.NumberOFShipsPerType);
-
-					::Client::InstallGameManagerInstrumentationCallbacks(
-						Network::Client::NetworkManager2::GetInstancePointer());
-
-					s_InternalNetworkState = NS_CONNECTED;
-					s_SuccessCallback();
-				}
+			case Network::Client::NetworkManager2::STATUS_SOCKET_DISCONNECTED:
+				s_Connected = false;
+				break;
+			default:
+				break;
 			}
-			break;
-		case NS_CONNECTED:
-			// This is the last state, there is nothing more to do, at least for now.
-			// TODO: Implement more network states
-			break;
+		}
+		else if (ResponseOption < 0)
+		{
+			s_FailureCallback();
+		}
+		else if (s_ManagementState.StateReady)
+		{
+			s_ManagementState.StateReady = false;
+			GameManager2::CreateObject(
+				s_ManagementState.InternalFieldDimensions,
+				s_ManagementState.NumberOFShipsPerType);
 
-		default:
-			// This case should not be called.
-			__debugbreak();
-			s_InternalNetworkState = NS_NONE;
-			Network::Client::NetworkManager2::ManualReset();
-			break;
+			::Client::InstallGameManagerInstrumentationCallbacks(
+				Network::Client::NetworkManager2::GetInstancePointer());
 
+			s_Connected = true;
+			s_SuccessCallback();
 		}
 	}
 
 	void CleanUp()
 	{
-		if (s_InternalNetworkState != NS_NONE)
-		{
-			s_InternalNetworkState = NS_NONE;
-			Network::Client::NetworkManager2::ManualReset();
-		}
+		Network::Client::NetworkManager2::ManualReset();
 	}
 
 }
