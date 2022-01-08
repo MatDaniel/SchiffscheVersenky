@@ -375,6 +375,14 @@ export namespace Server {
 							.ControlCode = ShipSockControl::GAME_READY_SERVER
 						});
 					SPDLOG_LOGGER_INFO(LayerLog, "Game hast started, all players informed");
+
+					// Inform random selected player of being ready
+					auto RandomPlayer = GameManager.SelectRandomCurrentPlayer();
+					auto ClientControllerOfSelect = NetworkDevice->GetClientBySocket(RandomPlayer);
+					ClientControllerOfSelect->RaiseStatusMessageOrComplete(NetworkRequest,
+							ShipSockControl::STATUS_YOUR_TURN, 0);
+					SPDLOG_LOGGER_INFO(LayerLog, "Selected player as {} as starter",
+						RandomPlayer);
 				}
 
 				NetworkRequest.CompleteIoRequest(NwRequestPacket::STATUS_REQUEST_COMPLETED);

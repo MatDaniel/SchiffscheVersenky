@@ -484,6 +484,12 @@ export namespace GameManagement {
 				*GetPlayerFieldByOperation(GET_OPPONENT_PLAYER,
 					CurrentSelectedPlayer));
 		}
+		SOCKET SelectRandomCurrentPlayer() {
+			TRACE_FUNTION_PROTO;
+
+			// Random bull shittery, not actually random tho, whatever fuck it
+			return CurrentSelectedPlayer = MyPlayerId;
+		}
 
 		// Game parameters, used for allocating players
 		const PointComponent InternalFieldDimensions;
