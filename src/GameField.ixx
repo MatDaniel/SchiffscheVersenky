@@ -122,7 +122,7 @@ export class GameField
 {
 public:
 
-	GameField(const GameManager2& manager, GmPlayerField* playerField, GmPlayerField* opponentField)
+	GameField(const GameManager2& manager, GmPlayerField* playerField, GmPlayerField* opponentField, mat4 transform = mat4(1.0F))
 		: m_Width(manager.InternalFieldDimensions.XComponent)
 		, m_Height(manager.InternalFieldDimensions.YComponent)
 		, m_GameManager(manager)
@@ -260,25 +260,25 @@ public:
 		return m_Width * y + x;
 	}
 
-	void DrawBackground(Renderer& Renderer)
+	void DrawBackground(Renderer& Renderer, const mat4& TargetTransform = mat4(1.0F))
 	{
 
 		// Render border
-		Renderer.Draw(mat4(1.0F), m_GameFieldMesh.VertexArray(), m_BorderRange, *m_BorderMaterial);
+		Renderer.Draw(TargetTransform, m_GameFieldMesh.VertexArray(), m_BorderRange, *m_BorderMaterial);
 
 		// Render background
 		if (m_Width != m_Height)
-			Renderer.Draw(mat4(1.0F), m_GameFieldMesh.VertexArray(), BackgroundRange, *m_WaterMaterial);
+			Renderer.Draw(TargetTransform, m_GameFieldMesh.VertexArray(), BackgroundRange, *m_WaterMaterial);
 
 	}
 
-	void DrawPlacedShips(Renderer& Renderer)
+	void DrawPlacedShips(Renderer& Renderer, const mat4& TargetTransform = mat4(1.0F))
 	{
 		auto shipStates = m_PlayerField->GetShipStateList();
 		for (auto& shipState : shipStates)
 		{
 			auto [type, pos] = DrawCastPos(shipState);
-			DrawShip(Renderer, type, pos);
+			DrawShip(Renderer, type, pos, TargetTransform);
 		}
 	}
 
@@ -290,10 +290,18 @@ public:
 				Renderer.Draw(m_FieldSquareTransforms[i], m_GameFieldMesh.VertexArray(), FieldSquareRange, *MaterialGetter(x, y));
 	}
 
-	template <typename ...VArgs>
-	void DrawShip(Renderer& renderer, ShipType type, ShipPosition pos, VArgs&&... VarArgs)
+	void DrawSquares(Renderer& Renderer, auto MaterialGetter, const mat4& TargetTransform) const
 	{
-		renderer.Draw(TranslateByIdentity(pos.position) * m_ShipScale * ShipRotations[pos.direction], m_ShipModels[type], forward<VArgs>(VarArgs)...);
+		size_t i = 0;
+		for (uint8_t y = 0; y < m_Height; y++)
+			for (uint8_t x = 0; x < m_Width; x++, i++)
+				Renderer.Draw(TargetTransform * m_FieldSquareTransforms[i], m_GameFieldMesh.VertexArray(), FieldSquareRange, *MaterialGetter(x, y));
+	}
+
+	template <typename ...VArgs>
+	void DrawShip(Renderer& renderer, ShipType type, ShipPosition pos, const mat4& TargetTransform, VArgs&&... VarArgs)
+	{
+		renderer.Draw(TranslateBy(TargetTransform, pos.position) * m_ShipScale * ShipRotations[pos.direction], m_ShipModels[type], forward<VArgs>(VarArgs)...);
 	}
 
 	void DrawOcean(Renderer& Renderer)
@@ -304,6 +312,15 @@ public:
 			Renderer.Draw(m_EdgeOceanTransforms[i], m_GameFieldMesh.VertexArray(), FieldSquareRange, *m_WaterMaterial);
 	}
 
+
+	void DrawOcean(Renderer& Renderer, const mat4& TargetTransform)
+	{
+		for (auto i = 0; i < 2; i++)
+			Renderer.Draw(TargetTransform * OceanVerticalTransforms[i], m_GameFieldMesh.VertexArray(), FieldSquareRange, *m_WaterMaterial);
+		for (auto i = 0; i < 2; i++)
+			Renderer.Draw(TargetTransform * m_EdgeOceanTransforms[i], m_GameFieldMesh.VertexArray(), FieldSquareRange, *m_WaterMaterial);
+	}
+
 	// Game
 	//------
 
@@ -312,11 +329,11 @@ public:
 		m_State.emplace<GameState>();
 	}
 	
-	void Game_DrawSquares(Renderer& Renderer) const
+	void Game_DrawSquares(Renderer& Renderer, const mat4& TargetTransform = mat4(1.0F)) const
 	{
 		DrawSquares(Renderer, [this](auto x, auto y) -> Render::Material* {
 			return m_WaterMaterial;
-		});
+		}, TargetTransform);
 	}
 
 	// Enemy
@@ -549,7 +566,7 @@ public:
 		auto ShipPosition = get<SetupState>(m_State).SelectedShipPos;
 
 		// Draw ship with the cursor position
-		DrawShip(Renderer, get<SetupState>(m_State).SelectedShip, ShipPosition, vec4(0.235F, 0.76F, 0.13F, 1.0F));
+		DrawShip(Renderer, get<SetupState>(m_State).SelectedShip, ShipPosition, mat4(1.0F), vec4(0.235F, 0.76F, 0.13F, 1.0F));
 		
 		// Cast rendering variables to network compatible ones
 		auto NetShipClass = NetCastType(get<SetupState>(m_State).SelectedShip);
@@ -809,7 +826,15 @@ public:
 		float OceanWidth = (TargetFB.Width() * Height / TargetFB.Height() - 1.0F) / 2.0F;
 		RecalculateOcean(OceanWidth + LeftShift, OceanWidth - LeftShift);
 	}
-	
+
+	float RecalculateOceanWithMidLane(const Render::FrameBuffer& TargetFB, float Height, float MidLane)
+	{
+		float OceanWidth = (TargetFB.Width() * Height / TargetFB.Height() - 1.0F) / 2.0F;
+		float OutWidth = OceanWidth - MidLane;
+		RecalculateOcean(OutWidth, MidLane / 2.0F);
+		return OutWidth;
+	}
+
 	void RecalculateOcean(float Left, float Right)
 	{
 		m_EdgeOceanTransforms[0] = scale(
@@ -820,6 +845,13 @@ public:
 			translate(mat4(1.0F), vec3(0.0F, 0.0F, -0.5F - Left / 2.0F)),
 			vec3(3.0F, 1.0F, Left)
 		);
+	}
+
+	void SwapFieldTargets(float DistanceMid, float DistanceOut)
+	{
+		swap(m_PlayerField, m_OpponentField);
+		m_EdgeOceanTransforms[0] = glm::translate(mat4(1.0F), { 0.0F, 0.0F, DistanceMid }) * m_EdgeOceanTransforms[0];
+		m_EdgeOceanTransforms[1] = glm::translate(mat4(1.0F), { 0.0F, 0.0F, DistanceOut }) * m_EdgeOceanTransforms[1];
 	}
 
 private:

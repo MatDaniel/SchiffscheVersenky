@@ -34,7 +34,6 @@ namespace
 	enum GameState
 	{
 		GS_NONE,
-		GS_CONNECTING,
 		GS_SETUP,
 		GS_GAME
 	};
@@ -103,7 +102,7 @@ export namespace Draw::NetEngine
 		{
 			switch (s_CurrentState)
 			{
-			case GS_CONNECTING:
+			case GS_NONE:
 				if (s_ManagementState.StateReady)
 				{
 					s_ManagementState.StateReady = false;
@@ -141,11 +140,13 @@ export namespace Draw::NetEngine
 		}
 		else
 		{
-			if (s_CurrentState == GS_CONNECTING)
-				Callbacks::OnConnectFail();
-			else
+			if (s_CurrentState != GS_NONE)
+			{
 				Callbacks::OnReset();
-			s_CurrentState = GS_NONE;
+				s_CurrentState = GS_NONE;
+			}
+			else
+				Callbacks::OnConnectFail();
 			Network::Client::NetworkManager2::ManualReset();
 		}
 	}

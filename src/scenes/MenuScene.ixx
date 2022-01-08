@@ -18,11 +18,15 @@ import Draw.Scene;
 import Draw.Engine;
 import Draw.Resources;
 import Draw.Renderer;
+import Draw.NetEngine;
+import Scenes.FieldSetup;
+import Scenes.Spectator;
 import Network.Client;
 import GameManagement;
 import Scenes.FieldSetup;
 import Draw.NetEngine;
 import Draw.NetEngine.Callbacks;
+
 
 using namespace std;
 using namespace Network;
@@ -157,6 +161,14 @@ namespace Draw::Scenes
 					Scene::Load(make_unique<FieldSetupScene>(
 						NetEngine::Properties::GameField.get(),
 						true));
+				}
+				ImGui::SameLine();
+				if (ImGui::Button("[Test] Spectator"))
+				{
+					NetEngine::ConnectWithoutServer();
+					Scene::Load(make_unique<SpectatorScene>(
+						NetEngine::Properties::GameField.get()
+					));
 				}
 				ImGui::EndDisabled();
 

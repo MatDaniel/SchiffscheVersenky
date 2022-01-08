@@ -224,7 +224,7 @@ export namespace GameManagement {
 					auto IteratorPosition = CalculateCordinatesOfPartByDistanceWithShip(
 						ShipEntry, i);
 					if (IteratorPosition == Cordinates)
-						return SPDLOG_LOGGER_INFO(GameLog, "Found ship at {}, for {}",
+						return SPDLOG_LOGGER_TRACE(GameLog, "Found ship at {}, for {}",
 							ShipEntry.Cordinates,
 							Cordinates),
 							&ShipEntry;

@@ -144,7 +144,7 @@ export int main(
 			// Creating and initializing managers managers
 			auto& ShipSocketObject = Network::Server::NetworkManager2::CreateObject(PortNumber);
 			auto& ShipGameObject = GameManager2::CreateObject(
-				PointComponent{ 6, 6 },
+				PointComponent{ 12, 12 },
 				ShipCount{ 2,2,2,2,2 });
 
 			// Run main server handler loop
