@@ -34,6 +34,7 @@ export namespace GameManagementEx {
 	constexpr uint8_t PLACEMENT_ICALLBACK_INDEX = 0;
 	constexpr uint8_t SRITECELL_ICALLBACK_INDEX = 1;
 	constexpr uint8_t REMOVESHI_ICALLBACK_INDEX = 2;
+	constexpr uint8_t READYUPPL_ICALLBACK_INDEX = 3;
 	class CallbackInterface {
 	public:
 		uint8_t TypeTag_Index;

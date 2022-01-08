@@ -16,6 +16,9 @@ using namespace Network;
 // Game
 import Game.GameField;
 
+// Callbacks
+import Draw.NetEngine.Callbacks;
+
 // Misc
 using namespace std;
 
@@ -28,10 +31,16 @@ namespace
 	GmPlayerField* s_PlayerField;
 	GmPlayerField* s_OpponentField;
 
-	bool s_Connected { false };
-	function<void()> s_FailureCallback;
-	function<void()> s_SuccessCallback;
+	enum GameState
+	{
+		GS_NONE,
+		GS_CONNECTING,
+		GS_SETUP,
+		GS_GAME
+	};
 
+	GameState s_CurrentState { GS_NONE };
+	
 }
 
 export namespace Draw::NetEngine
@@ -44,7 +53,6 @@ export namespace Draw::NetEngine
 
 	void ConnectWithoutServer()
 	{
-
 		PointComponent FieldDimensions { 12, 12 };
 		ShipCount MaxShipsOnField { 2, 2, 2, 2, 2 };
 		auto& ManagerInstance = GameManager2::CreateObject(FieldDimensions, MaxShipsOnField);
@@ -53,21 +61,16 @@ export namespace Draw::NetEngine
 		s_GameField = make_unique<GameField>(ManagerInstance, s_PlayerField, s_OpponentField);
 	}
 
-	bool Connect(const char* Username, const char* ServerAddress, const char* PortNumber,
-		function<void()>&& FailureCallback, function<void()>&& SuccessCallback)
+	bool Connect(const char* Username, const char* ServerAddress, const char* PortNumber)
 	{
 
 		// Ensure state is not conflicting
 		if (Network::Client::NetworkManager2::GetInstancePointer())
 			return false;
 
-		// Setup callbacks
-		s_FailureCallback = move(FailureCallback);
-		s_SuccessCallback = move(SuccessCallback);
-
 		// Clear State
 		s_ManagementState = { };
-		s_Connected = false;
+		s_CurrentState = GS_NONE;
 		s_PlayerField = nullptr;
 		s_OpponentField = nullptr;
 
@@ -95,38 +98,55 @@ export namespace Draw::NetEngine
 			::Client::ManagementDispatchRoutine,
 			(void*)&s_ManagementState);
 
-		if (s_Connected)
+
+		if (ResponseOption >= 0)
 		{
-			switch (ResponseOption)
+			switch (s_CurrentState)
 			{
-			case Network::Client::NetworkManager2::STATUS_SOCKET_DISCONNECTED:
-				s_Connected = false;
+			case GS_CONNECTING:
+				if (s_ManagementState.StateReady)
+				{
+					s_ManagementState.StateReady = false;
+					auto& ManagerInstance = GameManager2::CreateObject(
+						s_ManagementState.InternalFieldDimensions,
+						s_ManagementState.NumberOFShipsPerType);
+
+					::Client::InstallGameManagerInstrumentationCallbacks(ServerObject);
+
+					s_PlayerField = ManagerInstance.TryAllocatePlayerWithId(s_ManagementState.ClientIdByServer);
+					s_OpponentField = ManagerInstance.TryAllocatePlayerWithId(1);
+
+					s_GameField = make_unique<GameField>(ManagerInstance, s_PlayerField, s_OpponentField);
+
+					s_CurrentState = GS_SETUP;
+					Callbacks::OnConnectStart();
+				}
 				break;
-			default:
+			case GS_SETUP: {
+					if (s_ManagementState.GameHasStarted)
+					{
+						s_ManagementState.GameHasStarted = false;
+						s_CurrentState = GS_GAME;
+						Callbacks::OnGameStart();
+					}
+				}
+				break;
+			case GS_GAME: {
+
+				}
 				break;
 			}
+			
+			
 		}
-		else if (ResponseOption < 0)
+		else
 		{
-			s_FailureCallback();
-		}
-		else if (s_ManagementState.StateReady)
-		{
-			s_ManagementState.StateReady = false;
-			auto& ManagerInstance = GameManager2::CreateObject(
-				s_ManagementState.InternalFieldDimensions,
-				s_ManagementState.NumberOFShipsPerType);
-
-			::Client::InstallGameManagerInstrumentationCallbacks(ServerObject);
-
-			s_PlayerField = ManagerInstance.TryAllocatePlayerWithId(s_ManagementState.ClientIdByServer);
-			s_OpponentField = ManagerInstance.TryAllocatePlayerWithId(1);
-
-			s_GameField = make_unique<GameField>(ManagerInstance, s_PlayerField, s_OpponentField);
-
-			s_Connected = true;
-			s_SuccessCallback();
-
+			if (s_CurrentState == GS_CONNECTING)
+				Callbacks::OnConnectFail();
+			else
+				Callbacks::OnReset();
+			s_CurrentState = GS_NONE;
+			Network::Client::NetworkManager2::ManualReset();
 		}
 	}
 

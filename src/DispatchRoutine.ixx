@@ -220,11 +220,14 @@ export namespace Server {
 							RequestPackage->ShootCellLocation,
 							CellUpdated.value()
 					} });
+				SPDLOG_LOGGER_INFO(LayerLog, "Broadcasted cell state change to other clients");
 
 				// Notify player of successful strike request
 				NetworkRequest.OptionalClient->RaiseStatusMessageOrComplete(NetworkRequest,
 					ShipSockControl::STATUS_NEUTRAL,
 					RequestPackage->SpecialRequestIdentifier);
+				SPDLOG_LOGGER_INFO(LayerLog, "Reported back successful strike notification");
+				
 
 				// -> Special case in case strike cell returns sunken we have to check if the party shot lost
 				//    and inform all clients about the game over state,
@@ -253,14 +256,17 @@ export namespace Server {
 								.SocketAsSelectedPlayerId = RequestingClientId,
 								.ShipControlRaisedStatus = ShipSockControl::STATUS_GAME_OVER 
 							});
+						SPDLOG_LOGGER_INFO(LayerLog, "Reported sucken ship to all clients");
 					}
 				}
 
-				// Complete request and log
-				SPDLOG_LOGGER_INFO(LayerLog, "Broadcasted cell state change to other clients");
+				// Notifiy opponent of turn and complete
+				auto NewPlayersTurnId = GameManager.SwitchPlayersTurnState();
+				OpponentClient->RaiseStatusMessageOrComplete(NetworkRequest,
+					ShipSockControl::STATUS_YOUR_TURN, 0);
+				SPDLOG_LOGGER_INFO(LayerLog, "Informed opponent of having turn now");
 				NetworkRequest.CompleteIoRequest(NwRequestPacket::STATUS_REQUEST_COMPLETED);
 			}
-
 			case ShipSockControl::SET_SHIP_LOC_CLIENT: {
 
 				// Check game phase state and if requesting client is valid player
@@ -296,7 +302,6 @@ export namespace Server {
 				SPDLOG_LOGGER_INFO(LayerLog, "Successfully received and placed ship on board");
 				NetworkRequest.CompleteIoRequest(NwRequestPacket::STATUS_REQUEST_COMPLETED);
 			}
-
 			case ShipSockControl::REMOVE_SHIP_CLIENT: {
 
 				// Check game phase state and if requesting client is valid player
@@ -331,6 +336,49 @@ export namespace Server {
 				SPDLOG_LOGGER_INFO(LayerLog, "Successfully received and removed ship form field");
 				NetworkRequest.CompleteIoRequest(NwRequestPacket::STATUS_REQUEST_COMPLETED);
 			}
+			case ShipSockControl::READY_UP_CLIENT: {
+
+				// Set the client to ready
+				CheckCurrentPhaseAndRaiseClientStatus(NetworkDevice,
+					NetworkRequest,
+					GameManager2::SETUP_PHASE,
+					RequestPackage->SpecialRequestIdentifier);
+				auto& RequestingPlayer = CheckPlayerAndGetFieldOrRaiseClientStatus(NetworkDevice,
+					NetworkRequest,
+					RequestPackage->SpecialRequestIdentifier);
+				SPDLOG_LOGGER_INFO(LayerLog, "Applied checks and retrived requesting player {}",
+					NetworkRequest.RequestingSocket);
+
+				auto& GameManager = GameManager2::GetInstance();
+				auto Result = GameManager.ReadyUpPlayerByPlayer(RequestingPlayer);
+
+				if (Result < 0) {
+
+					NetworkRequest.OptionalClient->RaiseStatusMessageOrComplete(NetworkRequest,
+						ShipSockControl::STATUS_NO_READY_STATE,
+						RequestPackage->SpecialRequestIdentifier);
+					SPDLOG_LOGGER_WARN(LayerLog, "Client wanted to ready up with incomplete state");
+					NetworkRequest.CompleteIoRequest(NwRequestPacket::STATUS_REQUEST_IGNORED);
+				}
+
+				NetworkRequest.OptionalClient->RaiseStatusMessageOrComplete(NetworkRequest,
+						ShipSockControl::STATUS_YOURE_READY_NOW,
+						RequestPackage->SpecialRequestIdentifier);
+				SPDLOG_LOGGER_INFO(LayerLog, "Player was informed of being ready on server");
+
+				if (Result == GameManager2::STATUS_PLAYERS_READY) {
+					
+					// Broadcast game has started message
+					NetworkDevice->BroadcastShipSockControlExcept(NetworkRequest,
+						INVALID_SOCKET,
+						ShipSockControl{
+							.ControlCode = ShipSockControl::GAME_READY_SERVER
+						});
+					SPDLOG_LOGGER_INFO(LayerLog, "Game hast started, all players informed");
+				}
+
+				NetworkRequest.CompleteIoRequest(NwRequestPacket::STATUS_REQUEST_COMPLETED);
+			}
 
 			default:
 				SPDLOG_LOGGER_WARN(LayerLog, "Untreated ShipSockControl command encountered, this is fine for now");
@@ -343,7 +391,7 @@ export namespace Server {
 			// Further handling is required can be ignored for now
 			SPDLOG_LOGGER_WARN(LayerLog, "Socket {} was gracefully disconnected",
 				NetworkRequest.OptionalClient->GetSocket());
-			NetworkRequest.CompleteIoRequest(NwRequestPacket::STATUS_REQUEST_COMPLETED);
+			NetworkRequest.CompleteIoRequest(NwRequestPacket::STATUS_SOCKET_DISCONNECTED);
 		}
 
 		default:
@@ -579,6 +627,64 @@ export namespace Client {
 		SPDLOG_LOGGER_WARN(GameLogEx, "Installed GameEX callbacks into gamemanager");
 	}
 
+
+
+	enum QueueReadyUpResponse {
+		QUE_COULD_NOT_READY_UP = -2000,
+		QUE_NOINFO = 0,
+		QUE_QUEUED_FOR_READY,
+		QUE_READYED_UP,
+	};
+	QueueReadyUpResponse QueueServerReadyAndPoll() {
+		TRACE_FUNTION_PROTO;
+
+		// Get basic requirements and meta data
+		auto& NetworkDevice = NetworkManager2::GetInstance();
+		auto& GameManager = GameManager2::GetInstance();
+		auto OurField = GameManager.GetPlayerFieldByOperation(GameManager2::GET_MY_PLAYER,
+			INVALID_SOCKET);
+
+		// Check if there is any request that has already been handled for us
+		auto Iterator = find_if(QueuedForStatus.begin(),
+			QueuedForStatus.end(),
+			[](
+				decltype(QueuedForStatus)::const_reference MapEntry
+				) -> bool {
+					TRACE_FUNTION_PROTO;
+
+					if (MapEntry.second->TypeTag_Index == READYUPPL_ICALLBACK_INDEX)
+						return true;
+			});
+
+		// 
+		if (Iterator != QueuedForStatus.end()) {
+
+			// Check if network has received a status for this if not the request is still being handled
+			SPDLOG_LOGGER_INFO(GameLogEx, "Found queued entry for requested removal");
+			if (!Iterator->second->StatusReceived)
+				return QUE_NOINFO;
+
+			// We have received a status, check if this is acceptable, resulting in not altering control flow
+			SPDLOG_LOGGER_INFO(GameLogEx, "Request was treated by server");
+			auto Acceptability = Iterator->second->StatusAcceptable;
+			QueuedForStatus.erase(Iterator);
+			return Acceptability ? QUE_READYED_UP : QUE_COULD_NOT_READY_UP;
+		}
+
+		// if its not received we have to queue the request on the socket through dispatch
+		ShipSockControl RequestPackage{
+			.SpecialRequestIdentifier = GenerateUniqueIdentifier(),
+			.ControlCode = ShipSockControl::READY_UP_CLIENT,
+			.SocketAsSelectedPlayerId = ServerRemoteIdForMyPlayer
+		};
+		NetworkDevice.QueueShipControlPacket(RequestPackage);
+		QueuedForStatus.emplace(RequestPackage.SpecialRequestIdentifier,
+			make_unique<CallbackInterface>(READYUPPL_ICALLBACK_INDEX));
+		SPDLOG_LOGGER_INFO(GameLogEx, "Placed request into async queue, waiting for server async");
+		return QUE_QUEUED_FOR_READY;
+	}
+
+
 	struct ManagementDispatchState {
 		PointComponent InternalFieldDimensions;
 		ShipCount      NumberOFShipsPerType;
@@ -590,6 +696,10 @@ export namespace Client {
 			MY_PLAYER_WON,
 			MY_PALYER_LOST,
 		} GameOverStateRep;
+
+		bool GameHasStarted;
+		bool YouAreReadServerSide;
+		bool YourClientHasTurn;
 	};
 
 	void ManagementDispatchRoutine(
@@ -669,6 +779,26 @@ export namespace Client {
 					IoControlPacketData->CellStateUpdate.State);
 				NetworkRequest.CompleteIoRequest(NwRequestPacket::STATUS_REQUEST_COMPLETED);
 			}
+			case ShipSockControl::GAME_READY_SERVER: {
+
+				// server is informing us of all players being ready, can start gaem
+				SPDLOG_LOGGER_INFO(LayerLog, "game is ready starting game");
+				auto& GameManager = GameManager2::GetInstance();
+				auto Result = GameManager.CheckMyPlayerReadyBegin();
+				if (Result < 0) {
+
+					SPDLOG_LOGGER_ERROR(LayerLog, "failed to correctly change game state");
+					NetworkRequest.CompleteIoRequest(NwRequestPacket::STATUS_REQUEST_ERROR);
+				}
+
+				// Starting game rendered derreferd
+				auto DispatchState = (ManagementDispatchState*)UserContext;
+				DispatchState->GameHasStarted = true;
+				SPDLOG_LOGGER_INFO(LayerLog, "Started game completeing request");
+				NetworkRequest.CompleteIoRequest(NwRequestPacket::STATUS_REQUEST_COMPLETED);
+			}
+
+
 
 			case ShipSockControl::RAISE_STATUS_MESSAGE: {
 
@@ -693,6 +823,15 @@ export namespace Client {
 							? ManagementDispatchState::MY_PLAYER_WON : ManagementDispatchState::MY_PALYER_LOST;
 						SPDLOG_LOGGER_INFO(LayerLog, "Server dispatched game over message {}",
 							DispatchState->GameOverStateRep);
+						NetworkRequest.CompleteIoRequest(NwRequestPacket::STATUS_REQUEST_COMPLETED);
+					}
+
+					case ShipSockControl::STATUS_YOUR_TURN: {
+
+						// Please fucking kill me this is scuffed af
+						auto DispatchState = (ManagementDispatchState*)UserContext;
+						DispatchState->YourClientHasTurn = true;
+						SPDLOG_LOGGER_INFO(LayerLog, "server notified us of having turn");
 						NetworkRequest.CompleteIoRequest(NwRequestPacket::STATUS_REQUEST_COMPLETED);
 					}
 
@@ -772,6 +911,12 @@ export namespace Client {
 						SPDLOG_LOGGER_CRITICAL(GameLogEx, "GameEx injected controlflow received success notification but failed to update cell");
 						NetworkRequest.CompleteIoRequest(NwRequestPacket::STATUS_REQUEST_ERROR);
 					}
+				}
+				break;
+
+				case READYUPPL_ICALLBACK_INDEX: {
+
+					SPDLOG_LOGGER_INFO(GameLogEx, "Received server set ready up state");
 				}
 				break;
 

@@ -22,8 +22,11 @@ import Game.GameField;
 import Game.ShipInfo;
 import Network.Client;
 import GameManagement;
+import DispatchRoutine;
 import Game.ShipInfo;
 import Scenes.Game;
+
+import Draw.NetEngine.Callbacks;
 
 namespace Draw::Scenes
 {
@@ -32,14 +35,16 @@ namespace Draw::Scenes
 	using namespace glm;
 	using namespace Draw;
 	using namespace Network;
+	using namespace Network::Client;
 	using namespace GameManagement;
 
 	export class FieldSetupScene final : public Scene
 	{
 	public:
 
-		FieldSetupScene(GameField* GameField)
+		FieldSetupScene(GameField* GameField, bool WithoutServer = false)
 			: m_GameField(GameField)
+			, m_WithoutServer(WithoutServer)
 		{
 		}
 
@@ -82,6 +87,11 @@ namespace Draw::Scenes
 			// Update projection
 			Init_UpdateProjection();
 
+			/* Register Callbacks */
+			Draw::NetEngine::Callbacks::OnGameStart = [this]() {
+				Scene::Load(make_unique<GameScene>(m_GameField));
+			};
+
 		}
 
 		void OnDraw() override
@@ -108,11 +118,48 @@ namespace Draw::Scenes
 
 			ImGui::SetNextWindowPos(ImVec2(600, 10), ImGuiCond_Once, ImVec2());
 			ImGui::Begin("Field Setup", nullptr, ImGuiWindowFlags_NoSavedSettings);
-			{
-				if (ImGui::Button("Done"))
-					Scene::Load(make_unique<GameScene>(m_GameField));
-			}
+				ImGui::BeginDisabled(!m_GameField->SetupPhase_IsFinished() || m_IsReady || m_IsReadyWait);
+				if (ImGui::Button("Ready"))
+				{
+					if (!m_WithoutServer)
+					{
+						m_IsReadyWait = true;
+						m_ReadyFail = false;
+					}
+					else
+						Scene::Load(make_unique<GameScene>(m_GameField));
+				}
+				ImGui::EndDisabled();
+				if (m_ReadyFail)
+					ImGui::Text("Failed to ready up!");
+				if (m_IsReady)
+					ImGui::Text("Waiting for the other player...");
+				
 			ImGui::End();
+			
+			/* Ready Networking */
+
+			if (m_IsReadyWait && !m_IsReady)
+			{
+				auto Response = ::Client::QueueServerReadyAndPoll();
+
+				switch (Response)
+				{
+				case ::Client::QUE_READYED_UP:         // yea server granted us ready state :)
+					m_IsReady = true;
+					break;
+				case ::Client::QUE_COULD_NOT_READY_UP: // Received but error
+					m_IsReadyWait = false;
+					m_ReadyFail = true;
+					break;
+				case ::Client::QUE_NOINFO:             // work pending, please wait nigga
+				case ::Client::QUE_QUEUED_FOR_READY:   // this call resulted in the request being queued	
+					break;
+				default:                                           // all cases are handled, this should never occur
+					__debugbreak();
+					break;
+				}
+			}
 
 		}
 
@@ -150,6 +197,10 @@ namespace Draw::Scenes
 
 		// General
 		GameField* m_GameField;
+		bool m_WithoutServer;
+		bool m_IsReadyWait { false };
+		bool m_IsReady { false };
+		bool m_ReadyFail { false };
 
 		// Renderer
 		Draw::SceneData m_SceneData { &Window::Properties::FrameBuffer };

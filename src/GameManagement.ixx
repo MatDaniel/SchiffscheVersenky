@@ -281,9 +281,11 @@ export namespace GameManagement {
 			STATUS_INVALID = -2000,
 			STATUS_PLAYERS_NOT_READY,
 			STATUS_NOT_ALL_PLACED,
+			STATUS_PLAYER_ALREADY_READY,
 
 			STATUS_OK = 0,
 			STATUS_SWITCHED_GAME_PHASE,
+			STATUS_PLAYERS_READY,
 		};
 		enum GamePhase {
 			INVALID_PHASE = -1,
@@ -324,25 +326,62 @@ export namespace GameManagement {
 			return &FieldIterator->second;
 		}
 
-		GameManagerStatus CheckReadyAndStartGame() { // Checks if everything is valid and the game has been properly setup
+		// GameManagerStatus CheckReadyAndStartGame() { // Checks if everything is valid and the game has been properly setup
+		// 	TRACE_FUNTION_PROTO;
+		// 
+		// 	// Check if all players are ready to play
+		// 	if (ReadyPlayerMask != 2)
+		// 		return SPDLOG_LOGGER_WARN(GameLog, "Not all players are ready'd up"),
+		// 		STATUS_PLAYERS_NOT_READY;
+		// 
+		// 	// Check if players have all their ships placed
+		// 	for (const auto& [Key, PlayerFieldController] : PlayerFieldData)
+		// 		if (InternalShipCount.GetTotalCount() <
+		// 			PlayerFieldController.GetNumberOfShipsPlaced())
+		// 			return SPDLOG_LOGGER_WARN(GameLog, "Not all ships of Player {} have been placed",
+		// 				Key), STATUS_NOT_ALL_PLACED;
+		// 
+		// 	// Switch game phase state and notify caller
+		// 	CurrentGameState = GAME_PHASE;
+		// 	SPDLOG_LOGGER_INFO(GameLog, "Game is setup, switched to game phase state");
+		// 	return STATUS_SWITCHED_GAME_PHASE;
+		// }
+		GameManagerStatus CheckMyPlayerReadyBegin() { // Checks if we can ready local client game,
+			                                          // cause no ships are fucking placed on their side for the opponent
 			TRACE_FUNTION_PROTO;
 
-			// Check if all players are ready to play
-			if (NumberOfReadyPlayers != 2)
-				return SPDLOG_LOGGER_WARN(GameLog, "Not all players are ready'd up"),
-				STATUS_PLAYERS_NOT_READY;
-
-			// Check if players have all their ships placed
-			for (const auto& [Key, PlayerFieldController] : PlayerFieldData)
-				if (InternalShipCount.GetTotalCount() <
-					PlayerFieldController.GetNumberOfShipsPlaced())
-					return SPDLOG_LOGGER_WARN(GameLog, "Not all ships of Player {} have been placed",
-						Key), STATUS_NOT_ALL_PLACED;
+			// Check if my player has all his ships placed
+			auto PlayerField = GetPlayerFieldByOperation(GET_MY_PLAYER,
+				INVALID_SOCKET);
+			if (InternalShipCount.GetTotalCount() <
+				PlayerField->GetNumberOfShipsPlaced())
+				return SPDLOG_LOGGER_WARN(GameLog, "Not all ships of Player {} have been placed",
+					GetSocketAsIdForPlayerField(*PlayerField)), STATUS_NOT_ALL_PLACED;
 
 			// Switch game phase state and notify caller
 			CurrentGameState = GAME_PHASE;
 			SPDLOG_LOGGER_INFO(GameLog, "Game is setup, switched to game phase state");
 			return STATUS_SWITCHED_GAME_PHASE;
+		}
+		GameManagerStatus ReadyUpPlayerByPlayer(
+			const GmPlayerField& PlayerField
+		) {
+			TRACE_FUNTION_PROTO;
+
+			if (InternalShipCount.GetTotalCount() <
+				PlayerField.GetNumberOfShipsPlaced())
+				return SPDLOG_LOGGER_WARN(GameLog, "Not all ships of Player {} have been placed",
+					GetSocketAsIdForPlayerField(PlayerField)), STATUS_NOT_ALL_PLACED;
+			
+			auto FirstPlayerJoined = GetPlayerFieldByOperation(GET_MY_PLAYER, INVALID_SOCKET);
+			auto PlayerMaskForThisPlayer = FirstPlayerJoined == &PlayerField ? 1 : 2;
+			if (ReadyPlayerMask & PlayerMaskForThisPlayer)
+				return STATUS_PLAYER_ALREADY_READY;
+			ReadyPlayerMask |= PlayerMaskForThisPlayer;
+
+			if (ReadyPlayerMask == 3)
+				return STATUS_PLAYERS_READY;
+			return STATUS_OK;
 		}
 
 		enum GetPlayerFieldForOperationByType {
@@ -438,6 +477,14 @@ export namespace GameManagement {
 			return true;
 		}
 
+		SOCKET SwitchPlayersTurnState() {
+			TRACE_FUNTION_PROTO;
+
+			return CurrentSelectedPlayer = GetSocketAsIdForPlayerField(
+				*GetPlayerFieldByOperation(GET_OPPONENT_PLAYER,
+					CurrentSelectedPlayer));
+		}
+
 		// Game parameters, used for allocating players
 		const PointComponent InternalFieldDimensions;
 		const ShipCount      InternalShipCount;
@@ -459,7 +506,7 @@ export namespace GameManagement {
 
 		SOCKET    MyPlayerId = INVALID_SOCKET;
 		SOCKET    CurrentSelectedPlayer = INVALID_SOCKET;
-		uint8_t   NumberOfReadyPlayers = 0;
+		uint8_t   ReadyPlayerMask = 0;
 		GamePhase CurrentGameState = SETUP_PHASE;
 
 		// GameManagementEx instrumentation callbacks injection
@@ -727,6 +774,11 @@ export namespace GameManagement {
 	) {
 		TRACE_FUNTION_PROTO;
 
+		// Find possible ship that overlays with our coordinates
+		auto PossibleShip = pGetShipEntryForCordinate(ShipCoordinates);
+		if (!PossibleShip)
+			return ShipState{ .Cordinates = { 0, 0, 1} };
+
 		// Get Instrumentation callback for control flow injection
 		auto& GameManager = GameManager2::GetInstance();
 		auto& RemoveShipCallbackEx = GameManager.ExCallbacks[REMOVESHI_ICALLBACK_INDEX];
@@ -738,11 +790,6 @@ export namespace GameManagement {
 				RemoveInjection))
 				return nullopt;
 		}
-
-		// Find possible ship that overlays with our coordinates
-		auto PossibleShip = pGetShipEntryForCordinate(ShipCoordinates);
-		if (!PossibleShip)
-			return ShipState{ .Cordinates = { 0, 0, 1} };
 
 		// We found a ship, now we just have to undo the placement
 		for (auto i = 0; i < ShipLengthPerType[PossibleShip->ShipType]; ++i) {
@@ -756,6 +803,7 @@ export namespace GameManagement {
 		auto ShipLocationBackup = *PossibleShip;
 		FieldShipStates.erase(PossibleShip - FieldShipStates.data()
 			+ FieldShipStates.begin());
+		InternalProbeListCached.InvalidateCache();
 		SPDLOG_LOGGER_INFO(GameLog, "Ship at location {} was removed form the field",
 			ShipLocationBackup.Cordinates);
 		return ShipLocationBackup;

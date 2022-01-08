@@ -114,6 +114,9 @@
     <ClCompile Include="GameManagementEx.ixx">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="NetEngineCallbacks.ixx">
+      <Filter>Source Files\State</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="resource.h">

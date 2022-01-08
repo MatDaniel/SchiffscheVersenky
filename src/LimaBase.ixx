@@ -240,10 +240,12 @@ export namespace Network {
 			STATUS_NOT_A_PLAYER,
 			STATUS_NOT_IN_PHASE,
 			STATUS_ENTRY_NOT_FOUND,
+			STATUS_NO_READY_STATE,
 
 			STATUS_NEUTRAL = 0,
 
 			STATUS_YOUR_TURN,
+			STATUS_YOURE_READY_NOW,
 			STATUS_YOURE_LOBBY_HOST, // special, may never be implemented for MVP version
 			STATUS_GAME_OVER,        // ends the game itself the winner is contained in selected player field
 

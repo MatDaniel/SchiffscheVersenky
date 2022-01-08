@@ -22,6 +22,7 @@ import Network.Client;
 import GameManagement;
 import Scenes.FieldSetup;
 import Draw.NetEngine;
+import Draw.NetEngine.Callbacks;
 
 using namespace std;
 using namespace Network;
@@ -35,6 +36,22 @@ namespace Draw::Scenes
 	export class MenuScene final : public Scene
 	{
 	public:
+
+		void OnInit() override
+		{
+			Draw::NetEngine::Callbacks::OnConnectFail = [this]() {
+				m_FailedToConnect = true;
+				m_IsConnecting = false;
+			};
+            Draw::NetEngine::Callbacks::OnConnectStart = []() {
+                Scene::Load(make_unique<FieldSetupScene>(
+                    NetEngine::Properties::GameField.get()
+                ));
+            };
+			Draw::NetEngine::Callbacks::OnReset = []() {
+                Scene::Load(make_unique<MenuScene>());
+            };
+		}
 
 		void OnDraw() override
 		{
@@ -99,9 +116,7 @@ namespace Draw::Scenes
 
 				// Connection message
 				if (m_FailedToConnect)
-				{
 					ImGui::Text("Failed to connect!");
-				}
 
 				// Buttons
 				ImGui::BeginDisabled(m_IsConnecting);
@@ -118,18 +133,7 @@ namespace Draw::Scenes
 
 					try
 					{
-						if (NetEngine::Connect(Username, ServerAddress, PortNumber,
-							[this]() {
-								/* Failure Callback */
-								m_FailedToConnect = true;
-								m_IsConnecting = false;
-							},
-							[]() {
-								/* Success Callback */
-								Scene::Load(make_unique<FieldSetupScene>(
-									NetEngine::Properties::GameField.get()
-								));
-							}))
+						if (NetEngine::Connect(Username, ServerAddress, PortNumber))
 						{
 							m_IsConnecting = true;
 							m_FailedToConnect = false;
@@ -151,8 +155,8 @@ namespace Draw::Scenes
 				{
 					NetEngine::ConnectWithoutServer();
 					Scene::Load(make_unique<FieldSetupScene>(
-						NetEngine::Properties::GameField.get()
-					));
+						NetEngine::Properties::GameField.get(),
+						true));
 				}
 				ImGui::EndDisabled();
 
