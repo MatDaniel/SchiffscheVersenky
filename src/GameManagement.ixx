@@ -380,7 +380,7 @@ export namespace GameManagement {
 			ReadyPlayerMask |= PlayerMaskForThisPlayer;
 
 			if (ReadyPlayerMask == 3)
-				return STATUS_PLAYERS_READY;
+				return (CurrentGameState = GAME_PHASE), STATUS_PLAYERS_READY;
 			return STATUS_OK;
 		}
 
@@ -427,8 +427,8 @@ export namespace GameManagement {
 				if (!GetPlayerFieldByOperation(DOES_ID_OWN_PLAYER,
 					SocketAsId))
 					return nullptr;
-				return PlayerFieldData.begin()->first == SocketAsId ?
-					&PlayerFieldData.begin()->second : &PlayerFieldData.end()->second;
+				return PlayerFieldData.begin()->first != SocketAsId ?
+					&PlayerFieldData.begin()->second : &(++PlayerFieldData.begin())->second;
 
 			default:
 				SPDLOG_LOGGER_ERROR(GameLog, "unsupplied handling encountered");

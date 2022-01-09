@@ -155,7 +155,7 @@ namespace Draw::Scenes
 				case ::Client::QUE_NOINFO:             // work pending, please wait nigga
 				case ::Client::QUE_QUEUED_FOR_READY:   // this call resulted in the request being queued	
 					break;
-				default:                                           // all cases are handled, this should never occur
+				default:                               // all cases are handled, this should never occur
 					__debugbreak();
 					break;
 				}

@@ -14,6 +14,7 @@ import Draw.Scene;
 import Draw.Render;
 import Draw.Renderer;
 import Draw.Resources;
+import Draw.NetEngine;
 import Draw.Window;
 import Game.GameField;
 import GameManagement;
@@ -155,8 +156,9 @@ namespace Draw::Scenes
 				{
 					m_GameField->Enemy_UpdateCursorPosition(m_SceneScreenData, m_ScreenData, m_ScreenTransformation);
 					m_GameField->Enemy_DrawHits(m_ScreenForegroundRenderer);
-					m_GameField->Enemy_Selection(m_ScreenForegroundRenderer);
 					m_GameField->Enemy_DrawShips(m_ScreenForegroundRenderer);
+					if (NetEngine::Properties::CanShoot)
+						m_GameField->Enemy_Selection(m_ScreenForegroundRenderer);
 				}
 				m_ScreenForegroundRenderer.Render();
 			}
@@ -204,7 +206,8 @@ namespace Draw::Scenes
 
 		void OnMouseButton(int button, int action, int mods) override
 		{
-			if (action == GLFW_PRESS && button == GLFW_MOUSE_BUTTON_1 && m_IsScreenOpen)
+			if (action == GLFW_PRESS && button == GLFW_MOUSE_BUTTON_1
+				&& m_IsScreenOpen && NetEngine::Properties::CanShoot)
 			{
 				m_GameField->Enemy_Hit();
 			}

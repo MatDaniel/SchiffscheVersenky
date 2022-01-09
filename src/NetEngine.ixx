@@ -48,6 +48,7 @@ export namespace Draw::NetEngine
 	namespace Properties
 	{
 		auto& const GameField = s_GameField;
+		auto& const CanShoot = s_ManagementState.YourClientHasTurn;
 	}
 
 	void ConnectWithoutServer()

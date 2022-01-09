@@ -332,7 +332,22 @@ public:
 	void Game_DrawSquares(Renderer& Renderer, const mat4& TargetTransform = mat4(1.0F)) const
 	{
 		DrawSquares(Renderer, [this](auto x, auto y) -> Render::Material* {
-			return m_WaterMaterial;
+			
+			PointComponent TargetPosition{
+				.XComponent = x,
+				.YComponent = y
+			};
+
+			switch (m_PlayerField->GetCellStateByCoordinates(TargetPosition))
+			{
+			case CELL_WAS_SHOT_EMPTY:
+				return m_HitWaterMaterial;
+			case CELL_SHIP_WAS_HIT:
+				return m_HitShipMaterial;
+			default:
+				return m_WaterMaterial;
+			}
+
 		}, TargetTransform);
 	}
 
@@ -360,10 +375,13 @@ public:
 					renderer.Draw(m_FieldSquareTransforms[i], m_MarkerFailModel);
 					break;
 				case CELL_SHIP_WAS_HIT:
-					if (m_OpponentField->GetShipEntryForCordinate(TargetPosition)->Destroyed)
-						renderer.Draw(m_FieldSquareTransforms[i], m_MarkerShipModel, vec4(0.0F, 0.0F, 0.0F, 1.0), 0.75F);
-					else
-						renderer.Draw(m_FieldSquareTransforms[i], m_MarkerShipModel);
+					{
+					auto* ShipEntry = m_OpponentField->GetShipEntryForCordinate(TargetPosition);
+						if (ShipEntry && ShipEntry->Destroyed)
+							renderer.Draw(m_FieldSquareTransforms[i], m_MarkerShipModel, vec4(0.0F, 0.0F, 0.0F, 1.0), 0.75F);
+						else
+							renderer.Draw(m_FieldSquareTransforms[i], m_MarkerShipModel);
+					}
 					break;
 				default:
 					break;
@@ -870,7 +888,9 @@ private:
 	Render::Material* m_WaterMaterial { Resources::find<Render::Material>("GameField_Water") };
 	Render::Material* m_BorderMaterial { Resources::find<Render::Material>("GameField_Border") };
 	Render::Material* m_CollisionMaterial { Resources::find<Render::Material>("GameField_Collision") };
-	Render::Material* m_CollisionIndirectMaterial { Resources::find<Render::Material>("GameField_CollisionIndirect") };
+	Render::Material* m_CollisionIndirectMaterial{ Resources::find<Render::Material>("GameField_CollisionIndirect") };
+	Render::Material* m_HitWaterMaterial { Resources::find<Render::Material>("GameField_HitWater") };
+	Render::Material* m_HitShipMaterial { Resources::find<Render::Material>("GameField_HitShip") };
 	Render::Material* m_MarkerHitMaterial { Resources::find<Render::Material>("Screen_MarkerHit") };
 
 	// Enemy field and screen properties

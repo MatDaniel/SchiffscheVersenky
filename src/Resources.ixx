@@ -489,8 +489,10 @@ export namespace Draw::Resources
 		Resources::emplace<Render::Material>("Iron", CelProgram, DummyTexture, glm::vec4(0.8F, 0.8F, 0.8F, 1.0F));
 		Resources::emplace<Render::Material>("GameField_Water", WaterProgram, DummyTexture, glm::vec4(0.0F, 0.0F, 1.0F, 0.5F));
 		Resources::emplace<Render::Material>("GameField_Border", WaterProgram, DummyTexture, glm::vec4(1.0F, 1.0F, 1.0F, 0.85F));
-		Resources::emplace<Render::Material>("GameField_Collision", WaterProgram, DummyTexture, glm::vec4(1.0F, 0.0F, 0.0F, 1.0F));
-		Resources::emplace<Render::Material>("GameField_CollisionIndirect", WaterProgram, DummyTexture, glm::vec4(1.0F, 1.0F, 0.0F, 1.0F));
+		Resources::emplace<Render::Material>("GameField_Collision", WaterProgram, DummyTexture, glm::vec4(1.0F, 0.0F, 0.0F, 0.5F));
+		Resources::emplace<Render::Material>("GameField_CollisionIndirect", WaterProgram, DummyTexture, glm::vec4(1.0F, 1.0F, 0.0F, 0.5F));
+		Resources::emplace<Render::Material>("GameField_HitWater", WaterProgram, DummyTexture, glm::vec4(1.0F, 0.0F, 0.0F, 0.5F));
+		Resources::emplace<Render::Material>("GameField_HitShip", WaterProgram, DummyTexture, glm::vec4(0.0F, 0.0F, 0.0F, 0.5F));
 		Resources::emplace<Render::Material>("Screen_PostProcessing", CrtProgram, nullptr, glm::vec4());
 		Resources::emplace<Render::Material>("Screen_GameField", SolidProgram, DummyTexture, glm::vec4(0.19F, 0.75F, 0.25F, 1.0F));
 		Resources::emplace<Render::Material>("Screen_MarkerSelect", SolidProgram, DummyTexture, glm::vec4(0.725F, 0.0F, 0.0F, 1.0F));
