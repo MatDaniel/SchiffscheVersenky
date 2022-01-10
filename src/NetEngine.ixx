@@ -132,12 +132,16 @@ export namespace Draw::NetEngine
 				}
 				break;
 			case GS_GAME: {
-
+					switch (s_ManagementState.GameOverStateRep)
+					{
+					case ::Client::ManagementDispatchState::MY_PLAYER_WON:
+					case ::Client::ManagementDispatchState::MY_PALYER_LOST:
+					default:
+						break;
+					}
 				}
 				break;
 			}
-			
-			
 		}
 		else
 		{

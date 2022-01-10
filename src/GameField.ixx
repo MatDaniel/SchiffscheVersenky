@@ -235,7 +235,8 @@ public:
 		for (uint8_t i = 0; i < Draw::ShipTypeCount; i++)
 		{
 			float markerHitScale = m_SqaureSize * ShipInfos[i].size - borderAxis;
-			m_MarkerHitTransforms[i] = glm::scale(mat4(1.0F), { markerHitScale, squareScale, squareScale * 0.2F });
+			m_MarkerHitTransforms[i][0] = glm::scale(mat4(1.0F), { markerHitScale, squareScale, squareScale * 0.2F });
+			m_MarkerHitTransforms[i][1] = glm::scale(mat4(1.0F), { squareScale * 0.2F, squareScale, markerHitScale                  });
 		}
 
 		// Calculate ship scaling
@@ -338,7 +339,7 @@ public:
 				.YComponent = y
 			};
 
-			switch (m_PlayerField->GetCellStateByCoordinates(TargetPosition))
+			switch (m_PlayerField->GetCellStateByCoordinates(TargetPosition) & MASK_FILTER_STATE_BITS)
 			{
 			case CELL_WAS_SHOT_EMPTY:
 				return m_HitWaterMaterial;
@@ -369,7 +370,7 @@ public:
 					.XComponent = x,
 					.YComponent = y
 				};
-				switch (m_OpponentField->GetCellStateByCoordinates(TargetPosition))
+				switch (m_OpponentField->GetCellStateByCoordinates(TargetPosition) & MASK_FILTER_STATE_BITS)
 				{
 				case CELL_WAS_SHOT_EMPTY:
 					renderer.Draw(m_FieldSquareTransforms[i], m_MarkerFailModel);
@@ -403,7 +404,7 @@ public:
 			.YComponent = (uint8_t)CursorPos.y
 		};
 
-		switch (m_OpponentField->GetCellStateByCoordinates(TargetPosition))
+		switch (m_OpponentField->GetCellStateByCoordinates(TargetPosition) & MASK_FILTER_STATE_BITS)
 		{
 		case CELL_WAS_SHOT_EMPTY:
 		case CELL_SHIP_WAS_HIT:
@@ -452,7 +453,7 @@ public:
 
 	void Enemy_DrawShip(Renderer& Renderer, ShipType Type, ShipPosition Position) const
 	{
-		mat4 Transform{ TranslateByIdentity(Position.position) * m_MarkerHitTransforms[Type] * ShipRotations[Position.direction] };
+		mat4 Transform { TranslateByIdentity(Position.position) * m_MarkerHitTransforms[Type][Position.direction & Draw::SD_AXISPART] };
 		Renderer.Draw(Transform, m_GameFieldMesh.VertexArray(), FieldSquareRange, *m_MarkerHitMaterial);
 	}
 
@@ -900,7 +901,7 @@ private:
 	Render::ConstModel* m_MarkerFailModel { Resources::find<Render::ConstModel>("Markers/Fail") };
 
 	// Transforms for the line shown on the screen when a ship is completely down.
-	mat4 m_MarkerHitTransforms[Draw::ShipTypeCount];
+	mat4 m_MarkerHitTransforms[Draw::ShipTypeCount][2];
 
 	// Field square data for each field
 	mat4* m_FieldSquareTransforms;

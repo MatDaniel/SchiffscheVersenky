@@ -144,8 +144,8 @@ export int main(
 			// Creating and initializing managers managers
 			auto& ShipSocketObject = Network::Server::NetworkManager2::CreateObject(PortNumber);
 			auto& ShipGameObject = GameManager2::CreateObject(
-				PointComponent{ 12, 12 },
-				ShipCount{ 2,2,2,2,2 });
+				PointComponent{ 8, 8 },
+				ShipCount{ 2,1,1,1,1 });
 
 			// Run main server handler loop
 			SPDLOG_LOGGER_INFO(LayerLog, "Entering server management mode, ready for IO");

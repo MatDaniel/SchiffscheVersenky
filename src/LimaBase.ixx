@@ -196,9 +196,9 @@ export namespace Network {
 
 	struct ShipState {
 		// Ship base information
-		ShipClass       ShipType;
+		ShipClass      ShipType;
 		PointComponent Cordinates; // The cords of the ship always specify the location of the front
-		ShipRotation    Rotation;
+		ShipRotation   Rotation;
 
 		// Additional meta data
 		bool Destroyed;

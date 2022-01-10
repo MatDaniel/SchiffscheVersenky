@@ -95,6 +95,38 @@ export namespace GameManagement {
 			return nullopt;
 		}
 
+		void ForcePlaceDeadShip(
+			ShipClass      TypeOfShip,
+			ShipRotation   ShipOrientation,
+			PointComponent ShipCoordinates
+		) {
+			TRACE_FUNTION_PROTO;
+
+			// Commit changes and place the ship on the field updating the cells
+			for (auto i = 0; i < ShipLengthPerType[TypeOfShip]; ++i) {
+
+				// This loop iterates through all cell positions of ship parts and writes the state to the grid
+				auto IteratorPosition = CalculateCordinatesOfPartByDistanceWithShip(
+					ShipCoordinates, ShipOrientation, i);
+				GetCellStateByCoordinates(IteratorPosition) |= CELL_IS_IN_USE;
+			}
+
+			// Finally add the ship to our list, and invalidate our lookup cache
+			FieldShipStates.push_back(ShipState{
+				.ShipType = TypeOfShip,
+				.Cordinates = ShipCoordinates,
+				.Rotation = ShipOrientation,
+				.Destroyed = true
+			});
+
+			// We must also now invalidate the the probe cache as the field state has changed
+			// probing the same location as previously where now is a ship could elsewise 
+			// lead to collisions being missed
+			InternalProbeListCached.InvalidateCache();
+			SPDLOG_LOGGER_INFO(GameLog, "Registered ship in list at location {}",
+				ShipCoordinates);
+		}
+
 		optional<ShipState>
 		RemoveShipFromField(                // Tries to remove a ship that overlaps with the specified location,
 			                                // returns the coords of the ship if removed or ZComponent is set to 1 on failure
@@ -698,6 +730,11 @@ export namespace GameManagement {
 		PointComponent Cordinates
 	) {
 		TRACE_FUNTION_PROTO; 
+
+		auto& GameManager = GameManager2::GetInstance();
+		if (Cordinates.XComponent >= GameManager.InternalFieldDimensions.XComponent ||
+			Cordinates.XComponent >= GameManager.InternalFieldDimensions.XComponent)
+			throw runtime_error("tried to access out of bounds cellstate, fatal");
 		return FieldCellStates[Cordinates.YComponent *
 			GameManager2::GetInstance().InternalFieldDimensions.XComponent + Cordinates.XComponent];
 	}
@@ -742,10 +779,11 @@ export namespace GameManagement {
 
 		// Test and shoot cell in grid
 		auto& LocalCell = GetCellStateByCoordinates(TargetCoordinates);
-		if (LocalCell & PROBE_CELL_WAS_SHOT)
-			return SPDLOG_LOGGER_ERROR(GameLog, "Location {} was struck multiple times",
-				TargetCoordinates),
+		if (LocalCell & PROBE_CELL_WAS_SHOT) {
 			LocalCell |= STATUS_WAS_ALREADY_SHOT;
+			// return SPDLOG_LOGGER_ERROR(GameLog, "Location {} was struck multiple times",
+			// 	TargetCoordinates);
+		}
 		LocalCell |= MERGE_SHOOT_CELL;
 		SPDLOG_LOGGER_INFO(GameLog, "Cellstate in location {} was updated to {}",
 			TargetCoordinates, LocalCell);
@@ -756,6 +794,8 @@ export namespace GameManagement {
 
 		// Apply changes to each cell below the ship itself
 		auto ShipEntry = pGetShipEntryForCordinate(TargetCoordinates);
+		if (!ShipEntry)
+			return LocalCell;
 		for (auto i = 0; i < ShipLengthPerType[ShipEntry->ShipType]; ++i) {
 
 			// Enumerate all cells and test for non destroyed cell

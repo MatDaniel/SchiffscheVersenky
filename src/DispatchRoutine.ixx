@@ -234,6 +234,21 @@ export namespace Server {
 				//    then switch our own state to game over
 				if (CellUpdated.value() & STATUS_WAS_DESTRUCTOR) {
 
+					// Broadcast dead shiplocation to all remotes execpt target
+					auto ShipStateForShot = OpponentPlayerField->GetShipEntryForCordinate(
+						RequestPackage->ShootCellLocation);
+					if (!ShipStateForShot)
+						throw runtime_error("could not find ship for destroyed shit, impossible state");
+					NetworkDevice->BroadcastShipSockControlExcept(NetworkRequest,
+						OpponentId,
+						ShipSockControl{
+							.ControlCode = ShipSockControl::DEAD_SHIP_SERVER,
+							.ShipLocation = {
+								ShipStateForShot->Cordinates,
+								ShipStateForShot->Rotation,
+								ShipStateForShot->ShipType
+						} });
+
 					// Check if all ships are down
 					bool AllDown = true;
 					for (auto& Shipstate : OpponentPlayerField->GetShipStateList())
@@ -805,7 +820,20 @@ export namespace Client {
 				SPDLOG_LOGGER_INFO(LayerLog, "Started game completeing request");
 				NetworkRequest.CompleteIoRequest(NwRequestPacket::STATUS_REQUEST_COMPLETED);
 			}
+			case ShipSockControl::DEAD_SHIP_SERVER: {
 
+				// ForcePlace ship in opponent field and force kill
+				auto& GameManager = GameManager2::GetInstance();
+				auto OpponentPlayer = GameManager.GetPlayerFieldByOperation(
+					GameManager2::GET_OPPONENT_PLAYER,
+					INVALID_SOCKET);
+				OpponentPlayer->ForcePlaceDeadShip(
+					IoControlPacketData->ShipLocation.TypeOfShip,
+					IoControlPacketData->ShipLocation.Rotation,
+					IoControlPacketData->ShipLocation.ShipsPosition);
+				
+				NetworkRequest.CompleteIoRequest(NwRequestPacket::STATUS_REQUEST_COMPLETED);
+			}
 
 
 			case ShipSockControl::RAISE_STATUS_MESSAGE: {
@@ -886,7 +914,7 @@ export namespace Client {
 
 				case SRITECELL_ICALLBACK_INDEX: {
 					
-					/* // our request was confirmed now asynchronously do what the client expected us to actually do
+					// our request was confirmed now asynchronously do what the client expected us to actually do
 					auto& DownStrikeLocation = dynamic_cast<FieldStrikeLocationEx&>(*Iterator->second);
 					auto OpponentField = GameManager2::GetInstance()
 						.GetPlayerFieldByOperation(GameManager2::GET_OPPONENT_PLAYER,
@@ -899,7 +927,7 @@ export namespace Client {
 
 						SPDLOG_LOGGER_CRITICAL(GameLogEx, "GameEx injected controlflow received success notification but failed to update cell");
 						NetworkRequest.CompleteIoRequest(NwRequestPacket::STATUS_REQUEST_ERROR);
-					}*/
+					}
 				}
 				break;
 
