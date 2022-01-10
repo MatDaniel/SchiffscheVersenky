@@ -263,7 +263,7 @@ export namespace GameManagement {
 				}
 			}
 
-			SPDLOG_LOGGER_WARN(GameLog, "Failed to find an associated ship for location {{{}:{}}}",
+			SPDLOG_LOGGER_TRACE(GameLog, "Failed to find an associated ship for location {{{}:{}}}",
 				Cordinates.XComponent, Cordinates.YComponent);
 			return nullptr;
 		}
@@ -505,6 +505,7 @@ export namespace GameManagement {
 				return false;
 			}
 
+			CurrentGameState = GAMEEND_PHASE;
 			SPDLOG_LOGGER_INFO(GameLog, "Game over, gamestate changed and the game was terminated");
 			return true;
 		}
@@ -808,6 +809,7 @@ export namespace GameManagement {
 				LocalCell;
 		}
 
+		ShipEntry->Destroyed = true;
 		SPDLOG_LOGGER_INFO(GameLog, "Ship at {} was sunken",
 			ShipEntry->Cordinates);
 		return LocalCell |= STATUS_WAS_DESTRUCTOR;

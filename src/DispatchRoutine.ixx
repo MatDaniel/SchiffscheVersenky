@@ -234,7 +234,7 @@ export namespace Server {
 				//    then switch our own state to game over
 				if (CellUpdated.value() & STATUS_WAS_DESTRUCTOR) {
 
-					// Broadcast dead shiplocation to all remotes execpt target
+					// Broadcast dead ship location to all remotes except target
 					auto ShipStateForShot = OpponentPlayerField->GetShipEntryForCordinate(
 						RequestPackage->ShootCellLocation);
 					if (!ShipStateForShot)
@@ -928,6 +928,8 @@ export namespace Client {
 						SPDLOG_LOGGER_CRITICAL(GameLogEx, "GameEx injected controlflow received success notification but failed to update cell");
 						NetworkRequest.CompleteIoRequest(NwRequestPacket::STATUS_REQUEST_ERROR);
 					}
+					auto DispatchState = (ManagementDispatchState*)UserContext;
+					DispatchState->YourClientHasTurn = false;
 				}
 				break;
 
