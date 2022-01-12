@@ -117,7 +117,7 @@ namespace Draw::Scenes
 			/* Draw GUI */
 
 			ImGui::SetNextWindowPos(ImVec2(600, 10), ImGuiCond_Once, ImVec2());
-			ImGui::Begin("Field Setup", nullptr, ImGuiWindowFlags_NoSavedSettings);
+			ImGui::Begin("Field Setup", nullptr, ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoNavInputs);
 				ImGui::BeginDisabled(!m_GameField->SetupPhase_IsFinished() || m_IsReady || m_IsReadyWait);
 				if (ImGui::Button("Ready"))
 				{

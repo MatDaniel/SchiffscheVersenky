@@ -113,7 +113,8 @@ namespace Draw::Scenes
 			ImGui::Begin("Main Menu", nullptr,
 				ImGuiWindowFlags_NoBackground | ImGuiWindowFlags_NoTitleBar |
 				ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoResize |
-				ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoCollapse);
+				ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoCollapse |
+			    ImGuiWindowFlags_NoNavInputs);
 
 			// Apply style pushed above
 			ImGui::PopStyleVar(2);
@@ -145,7 +146,9 @@ namespace Draw::Scenes
 				};
 
 				ImGui::SetNextWindowPos(ImConnectWinPos);
-				ImGui::BeginChild("Connect", ImConnectWinSize, true, ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoCollapse);
+				ImGui::BeginChild("Game Over", ImConnectWinSize, true,
+					ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoCollapse |
+					ImGuiWindowFlags_NoNavInputs);
 
 				// Winner message
 				switch (m_Win)
@@ -185,7 +188,9 @@ namespace Draw::Scenes
 				};
 
 				ImGui::SetNextWindowPos(ImConnectWinPos);
-				ImGui::BeginChild("Connect", ImConnectWinSize, true, ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoCollapse);
+				ImGui::BeginChild("Connect", ImConnectWinSize, true,
+					ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoCollapse |
+					ImGuiWindowFlags_NoNavInputs);
 
 				// Connection form
 				ImGui::InputTextWithHint("Username", DefaultUsername, m_InputUsername, IM_ARRAYSIZE(m_InputUsername));
