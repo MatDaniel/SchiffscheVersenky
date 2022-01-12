@@ -15,5 +15,7 @@ export namespace Draw::NetEngine::Callbacks
 	VoidCallbackFunc OnConnectFail;
 	VoidCallbackFunc OnGameStart;
 	VoidCallbackFunc OnReset;
+	VoidCallbackFunc OnEndLost;
+	VoidCallbackFunc OnEndWin;
 
 }

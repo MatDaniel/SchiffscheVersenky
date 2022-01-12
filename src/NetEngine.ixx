@@ -135,7 +135,13 @@ export namespace Draw::NetEngine
 					switch (s_ManagementState.GameOverStateRep)
 					{
 					case ::Client::ManagementDispatchState::MY_PLAYER_WON:
+						Network::Client::NetworkManager2::ManualReset(); // Disconnect
+						Callbacks::OnEndWin();
+						break;
 					case ::Client::ManagementDispatchState::MY_PALYER_LOST:
+						Network::Client::NetworkManager2::ManualReset(); // Disconnect
+						Callbacks::OnEndLost();
+						break;
 					default:
 						break;
 					}

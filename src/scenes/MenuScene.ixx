@@ -41,6 +41,19 @@ namespace Draw::Scenes
 	{
 	public:
 
+		enum Winner
+		{
+			WIN_NONE,
+			WIN_PLAYER,
+			WIN_OPPNENT
+		};
+
+
+		MenuScene(Winner Win = WIN_NONE)
+			: m_Win(Win)
+		{
+		}
+
 		void OnInit() override
 		{
 			Draw::NetEngine::Callbacks::OnConnectFail = [this]() {
@@ -53,22 +66,45 @@ namespace Draw::Scenes
                 ));
             };
 			Draw::NetEngine::Callbacks::OnReset = []() {
-                Scene::Load(make_unique<MenuScene>());
-            };
+				Scene::Load(make_unique<MenuScene>());
+			};
+			Draw::NetEngine::Callbacks::OnEndLost = []() {
+				Scene::Load(make_unique<MenuScene>(WIN_OPPNENT));
+			};
+			Draw::NetEngine::Callbacks::OnEndWin = []() {
+				Scene::Load(make_unique<MenuScene>(WIN_PLAYER));
+			};
 		}
 
 		void OnDraw() override
 		{
-			// Clear screen
-			//--------------
+
 
 			Window::Properties::FrameBuffer.Select();
 
-			glClearColor(0.8F, 0.2F, 0.1F, 1.0F);
+			// Clear color
+			//-------------
+
+			switch (m_Win)
+			{
+			case WIN_OPPNENT:
+				glClearColor(0.698F, 0.133F, 0.133F, 1.0F);
+				break;
+			case WIN_PLAYER:
+				glClearColor(0.0F, 0.5F, 0.0F, 1.0F);
+				break;
+			default:
+				glClearColor(0.118F, 0.477F, 1.0F, 1.0F);
+				break;
+			}
 			glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
-			auto WindowSize{ Window::Properties::WindowSize };
-			ImVec2 ImWindowSize{ ImVec2(static_cast<float>(WindowSize.x), static_cast<float>(WindowSize.y)) };
+			// Draw main menu
+			//----------------
+
+			bool IsMenuDisabled { m_ShowServerConnectWindow || m_Win != WIN_NONE };
+			auto WindowSize { Window::Properties::WindowSize };
+			ImVec2 ImWindowSize { ImVec2(static_cast<float>(WindowSize.x), static_cast<float>(WindowSize.y)) };
 			ImGui::SetNextWindowSize(ImWindowSize);
 			ImGui::SetNextWindowPos(ImVec2(0.0F, 0.0F));
 			ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 0.0F);
@@ -83,7 +119,7 @@ namespace Draw::Scenes
 			ImGui::PopStyleVar(2);
 
 			// Buttons
-			ImGui::BeginDisabled(m_ShowServerConnectWindow);
+			ImGui::BeginDisabled(IsMenuDisabled);
 			if (ImGui::Button("Play"))
 				m_ShowServerConnectWindow = true;
 			if (ImGui::Button("Quit"))
@@ -91,11 +127,49 @@ namespace Draw::Scenes
 			ImGui::EndDisabled();
 
 			// Darken the scene while the connection popup is open
-			if (m_ShowServerConnectWindow)
+			if (IsMenuDisabled)
 			{
 				auto drawList = ImGui::GetWindowDrawList();
 				auto col = ImColor(0.0F, 0.0F, 0.0F, 0.5F);
 				drawList->AddRectFilled(ImVec2(0.0F, 0.0F), ImWindowSize, col, 0.0f, ImDrawFlags_None);
+			}
+
+			// Winner window
+			if (m_Win != WIN_NONE)
+			{
+
+				ImVec2 ImConnectWinSize{ 400, 53 };
+				ImVec2 ImConnectWinPos{
+					(ImWindowSize.x - ImConnectWinSize.x) / 2,
+					(ImWindowSize.y - ImConnectWinSize.y) / 2
+				};
+
+				ImGui::SetNextWindowPos(ImConnectWinPos);
+				ImGui::BeginChild("Connect", ImConnectWinSize, true, ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoCollapse);
+
+				// Winner message
+				switch (m_Win)
+				{
+				case WIN_PLAYER:
+					ImGui::Text("Congratulations, you won!");
+					break;
+				case WIN_OPPNENT:
+					ImGui::Text("You lost the game.");
+					break;
+				default:
+					ImGui::Text("This is an error!");
+					break;
+				}
+				
+
+				// Buttons
+				if (ImGui::Button("Close"))
+				{
+					m_Win = WIN_NONE;
+				}
+
+				ImGui::EndChild();
+
 			}
 
 			// Connection popup
@@ -181,6 +255,7 @@ namespace Draw::Scenes
 
 	private:
 
+		Winner m_Win;
 		char m_InputUsername[32]{ "" };
 		char m_InputAddress[64]{ "" };
 		char m_InputPort[6]{ "" };
