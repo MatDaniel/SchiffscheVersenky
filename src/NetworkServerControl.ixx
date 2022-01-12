@@ -758,7 +758,7 @@ export namespace Network::Server {
 				NetworkRequest,
 				nullptr);
 			if (RequestStatus < 0)
-				throw (SPDLOG_LOGGER_CRITICAL(NetworkLog, "YOu fucked up to fuckiung hanle disconnet fucking faggot"),
+				throw (SPDLOG_LOGGER_CRITICAL(NetworkLog, "The disconnect dispatch was not properly handled, terminating server. (currently used to legitamitly shutdown)"),
 					runtime_error("Are you even trying anymore? HOW THE FUCK DID WE END UP HERE"));
 
 			// Removing client from entry/descriptor lists

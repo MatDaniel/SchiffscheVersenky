@@ -11,7 +11,7 @@ and probably overkill for what it was intended to do.
 There are also other heavily cut corner in this project, as for example if one player disconnects th server will shut down,\
 but that ain't even the best part.. the server in its current state is unable to disconnect clients..\
 so as a quick fix i just shutdown the server as a whole and exit the application resulting in CONNECTRESET,\
-yes this shoudl absolutely be fixed and i may or may not (that means i will not) fix this issue in the far future (after i died probably).
+yes this should absolutely be fixed and i may or may not (that means i will not) fix this issue in the far future (after i died probably).
 
 What could we have done better?, well for starts maybe not start such a project in the first place, we had other options,..\
 options that didnt require us to write 10k lines of fucking rushed and unpolished c++ shitcode.
@@ -22,7 +22,7 @@ Sincerely, Lima and Daniel.
 
 ## How to build:
 
-1. Recursively clonse from github.com
+1. Recursively clone from github.com
 2. Download glad binaries in realease and put it in "3rdparty/glad_rel"
 3. Download glfw binaries, do the same as above ("3rdparty/glfw-3.3.5.bin.WIN64")
 4. Open the solution in fucking visual studio 2022
@@ -49,7 +49,7 @@ A: Ofcourse it can, it was written by monkeys, and honestly i dont wanna know ho
    also, there might be a present in this (just kidding,.. or am i ?)
 
 Q: "How to start the server"\
-A: Open a terminal (whatever you use on windows, for example cmd.exe), finde the executable and give it "s" as an argument,\
+A: Open a terminal (whatever you use on windows, for example cmd.exe), find the executable and give it "s" as an argument,\
    you and also give it optionally a port number behing that, that the server should bind to, note: the port has to be open.
 
 Q: "Can i play this online with my friends?"\

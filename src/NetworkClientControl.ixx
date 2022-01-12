@@ -333,6 +333,8 @@ export namespace Network::Client {
 						return STATUS_SOCKET_CONNECTED;
 					}
 				}
+
+				return STATUS_DISPATCH_OK;
 			}
 		}
 
