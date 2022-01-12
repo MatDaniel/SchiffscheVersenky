@@ -84,6 +84,14 @@ export namespace Draw::NetEngine
 
 	}
 
+
+	void CleanUp()
+	{
+		Network::Client::NetworkManager2::ManualReset();
+		GameManager2::ManualReset();
+		s_GameField.reset();
+	}
+
 	void Update()
 	{
 
@@ -135,11 +143,11 @@ export namespace Draw::NetEngine
 					switch (s_ManagementState.GameOverStateRep)
 					{
 					case ::Client::ManagementDispatchState::MY_PLAYER_WON:
-						Network::Client::NetworkManager2::ManualReset(); // Disconnect
+						CleanUp();
 						Callbacks::OnEndWin();
 						break;
 					case ::Client::ManagementDispatchState::MY_PALYER_LOST:
-						Network::Client::NetworkManager2::ManualReset(); // Disconnect
+						CleanUp();
 						Callbacks::OnEndLost();
 						break;
 					default:
@@ -158,14 +166,8 @@ export namespace Draw::NetEngine
 			}
 			else
 				Callbacks::OnConnectFail();
-			Network::Client::NetworkManager2::ManualReset();
+			CleanUp();
 		}
-	}
-
-	void CleanUp()
-	{
-		Network::Client::NetworkManager2::ManualReset();
-		s_GameField.reset();
 	}
 
 }
