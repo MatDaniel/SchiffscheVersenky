@@ -97,7 +97,11 @@ export int main(
 		ResourceLog = spdlog::stdout_color_st("Resource");
 		
 		spdlog::set_pattern(SPDLOG_SMALL_PATTERN);
+#ifdef NDEBUG
+		spdlog::set_level(spdlog::level::info);
+#else
 		spdlog::set_level(spdlog::level::debug);
+#endif
 		SPDLOG_LOGGER_INFO(LayerLog, "Initialized Spdlog loggers");
 	}
 	catch (const spdlog::spdlog_ex& ExceptionInformation) {

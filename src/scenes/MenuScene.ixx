@@ -228,6 +228,7 @@ namespace Draw::Scenes
 					m_ShowServerConnectWindow = false;
 					m_FailedToConnect = false;
 				}
+#ifndef NDEBUG
 				ImGui::SameLine();
 				if (ImGui::Button("[Test] Without Server"))
 				{
@@ -244,6 +245,7 @@ namespace Draw::Scenes
 						NetEngine::Properties::GameField.get()
 					));
 				}
+#endif
 				ImGui::EndDisabled();
 
 				ImGui::EndChild();
